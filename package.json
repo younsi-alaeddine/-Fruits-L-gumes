@@ -1,0 +1,15 @@
+{
+  "name": "fruits-legumes-app",
+  "version": "1.0.0",
+  "description": "Application B2B de distribution de fruits et legumes",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "start": "cd frontend && npm start",
+    "install": "cd frontend && npm install"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

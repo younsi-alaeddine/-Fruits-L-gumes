@@ -1,0 +1,179 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+enum OrderStatus {
+  NEW
+  PREPARATION
+  LIVRAISON
+  LIVREE
+  ANNULEE
+}
+
+enum Unit {
+  kg
+  caisse
+  piece
+  botte
+}
+
+model User {
+  id               String    @id @default(uuid())
+  name             String
+  email            String    @unique
+  phone            String?
+  password         String
+  role             Role      @default(CLIENT)
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  shop             Shop?
+
+  @@index([email])
+  @@index([resetToken])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Shop {
+  id         String   @id @default(uuid())
+  name       String
+  address    String
+  city       String
+  postalCode String
+  phone      String?
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders     Order[]
+
+  @@map("shops")
+}
+
+enum ProductCategory {
+  FRUITS
+  LEGUMES
+  HERBES
+  FRUITS_SECS
+}
+
+model Product {
+  id                 String          @id @default(uuid())
+  name               String
+  photoUrl           String?
+  priceHT            Float
+  tvaRate            Float           @default(5.5)
+  unit               Unit            @default(kg)
+  category           ProductCategory @default(FRUITS)
+  subCategory        String?         // Sous-catégorie pour faciliter la navigation
+  isActive           Boolean         @default(true)
+  isVisibleToClients Boolean         @default(true) // Contrôle la visibilité pour les clients
+  stock              Float           @default(0)
+  stockAlert         Float           @default(10)
+  deletedAt          DateTime?
+  createdAt          DateTime        @default(now())
+  orderItems         OrderItem[]
+
+  @@index([isActive])
+  @@index([isVisibleToClients])
+  @@index([category])
+  @@index([subCategory])
+  @@index([stock])
+  @@index([deletedAt])
+  @@map("products")
+}
+
+enum PaymentStatus {
+  EN_ATTENTE
+  PAYE
+  IMPAYE
+  REMBOURSE
+}
+
+model Order {
+  id            String        @id @default(uuid())
+  shopId        String
+  shop          Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  status        OrderStatus   @default(NEW)
+  paymentStatus PaymentStatus @default(EN_ATTENTE)
+  totalHT       Float         @default(0)
+  totalTVA      Float         @default(0)
+  totalTTC      Float         @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  items         OrderItem[]
+  payments      Payment[]
+
+  @@index([shopId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Float
+  priceHT   Float
+  totalHT   Float
+  totalTVA  Float
+  totalTTC  Float
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  orderId      String
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount       Float
+  paymentMethod String?       // CASH, CARD, TRANSFER, CHECK
+  paymentDate  DateTime?
+  status       PaymentStatus  @default(EN_ATTENTE)
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@index([paymentDate])
+  @@map("payments")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   // CREATE, UPDATE, DELETE, LOGIN, etc.
+  entity    String   // Product, Order, User, etc.
+  entityId  String
+  userId    String?
+  changes   String?  // JSON stringified changes
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
+
