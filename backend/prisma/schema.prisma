@@ -13,6 +13,12 @@ datasource db {
 enum Role {
   ADMIN
   CLIENT
+  PREPARATEUR
+  LIVREUR
+  COMMERCIAL
+  STOCK_MANAGER
+  FINANCE
+  MANAGER
 }
 
 enum OrderStatus {
@@ -31,17 +37,22 @@ enum Unit {
 }
 
 model User {
-  id               String    @id @default(uuid())
+  id               String         @id @default(uuid())
   name             String
-  email            String    @unique
+  email            String         @unique
   phone            String?
   password         String
-  role             Role      @default(CLIENT)
+  role             Role           @default(CLIENT)
   resetToken       String?
   resetTokenExpiry DateTime?
   deletedAt        DateTime?
-  createdAt        DateTime  @default(now())
+  createdAt        DateTime       @default(now())
   shop             Shop?
+  notifications    Notification[]
+  sentMessages     Message[]      @relation("SentMessages")
+  receivedMessages Message[]      @relation("ReceivedMessages")
+  driverDeliveries Delivery[]     @relation("DriverDeliveries")
+  auditLogs        AuditLog[]
 
   @@index([email])
   @@index([resetToken])
@@ -50,15 +61,17 @@ model User {
 }
 
 model Shop {
-  id         String   @id @default(uuid())
-  name       String
-  address    String
-  city       String
-  postalCode String
-  phone      String?
-  userId     String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  orders     Order[]
+  id             String           @id @default(uuid())
+  name           String
+  address        String
+  city           String
+  postalCode     String
+  phone          String?
+  userId         String           @unique
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders         Order[]
+  RecurringOrder RecurringOrder[]
+  quotes         Quote[]
 
   @@map("shops")
 }
@@ -70,6 +83,49 @@ enum ProductCategory {
   FRUITS_SECS
 }
 
+// Catégories personnalisables
+model Category {
+  id            String        @id @default(uuid())
+  name          String
+  icon          String?
+  color         String?
+  description   String?
+  isActive      Boolean       @default(true)
+  order         Int           @default(0) // Pour l'ordre d'affichage
+  deletedAt     DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  subCategories SubCategory[]
+  products      Product[]
+
+  @@unique([name])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("categories")
+}
+
+// Sous-catégories personnalisables
+model SubCategory {
+  id          String    @id @default(uuid())
+  name        String
+  icon        String?
+  description String?
+  categoryId  String
+  category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  isActive    Boolean   @default(true)
+  order       Int       @default(0)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("sub_categories")
+}
+
 model Product {
   id                 String          @id @default(uuid())
   name               String
@@ -77,8 +133,12 @@ model Product {
   priceHT            Float
   tvaRate            Float           @default(5.5)
   unit               Unit            @default(kg)
-  category           ProductCategory @default(FRUITS)
-  subCategory        String?         // Sous-catégorie pour faciliter la navigation
+  category           ProductCategory @default(FRUITS) // Ancien système (pour rétrocompatibilité)
+  categoryId         String? // Nouveau système - catégorie personnalisée
+  customCategory     Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  subCategory        String? // Ancien système (pour rétrocompatibilité)
+  subCategoryId      String? // Nouveau système - sous-catégorie personnalisée
+  customSubCategory  SubCategory?    @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
   isActive           Boolean         @default(true)
   isVisibleToClients Boolean         @default(true) // Contrôle la visibilité pour les clients
   stock              Float           @default(0)
@@ -86,11 +146,15 @@ model Product {
   deletedAt          DateTime?
   createdAt          DateTime        @default(now())
   orderItems         OrderItem[]
+  recurringItems     RecurringItem[]
+  quoteItems         QuoteItem[]
 
   @@index([isActive])
   @@index([isVisibleToClients])
   @@index([category])
+  @@index([categoryId])
   @@index([subCategory])
+  @@index([subCategoryId])
   @@index([stock])
   @@index([deletedAt])
   @@map("products")
@@ -104,32 +168,40 @@ enum PaymentStatus {
 }
 
 model Order {
-  id            String        @id @default(uuid())
-  shopId        String
-  shop          Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  status        OrderStatus   @default(NEW)
-  paymentStatus PaymentStatus @default(EN_ATTENTE)
-  totalHT       Float         @default(0)
-  totalTVA      Float         @default(0)
-  totalTTC      Float         @default(0)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  items         OrderItem[]
-  payments      Payment[]
+  id                 String          @id @default(uuid())
+  shopId             String
+  shop               Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orderNumber        String?         @unique // Numéro de bon de commande
+  status             OrderStatus     @default(NEW)
+  paymentStatus      PaymentStatus   @default(EN_ATTENTE)
+  totalHT            Float           @default(0)
+  totalTVA           Float           @default(0)
+  totalTTC           Float           @default(0)
+  recurringOrderId   String?         // Lien vers la commande récurrente (si générée automatiquement)
+  recurringOrder     RecurringOrder? @relation(fields: [recurringOrderId], references: [id], onDelete: SetNull)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  items              OrderItem[]
+  payments           Payment[]
+  invoice            Invoice?
+  delivery           Delivery?
+  convertedFromQuote Quote?          @relation("QuoteToOrder")
 
   @@index([shopId])
+  @@index([orderNumber])
   @@index([status])
   @@index([paymentStatus])
   @@index([createdAt])
+  @@index([recurringOrderId])
   @@map("orders")
 }
 
 model OrderItem {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
   quantity  Float
   priceHT   Float
   totalHT   Float
@@ -143,17 +215,20 @@ model OrderItem {
 
 model Payment {
   id            String        @id @default(uuid())
-  orderId      String
-  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  amount       Float
-  paymentMethod String?       // CASH, CARD, TRANSFER, CHECK
-  paymentDate  DateTime?
-  status       PaymentStatus  @default(EN_ATTENTE)
-  notes        String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  orderId       String
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  receiptNumber String?       @unique // Numéro de reçu
+  amount        Float
+  paymentMethod String? // CASH, CARD, TRANSFER, CHECK
+  paymentDate   DateTime?
+  status        PaymentStatus @default(EN_ATTENTE)
+  notes         String?
+  fileUrl       String? // URL du PDF du reçu
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   @@index([orderId])
+  @@index([receiptNumber])
   @@index([status])
   @@index([paymentDate])
   @@map("payments")
@@ -161,11 +236,12 @@ model Payment {
 
 model AuditLog {
   id        String   @id @default(uuid())
-  action    String   // CREATE, UPDATE, DELETE, LOGIN, etc.
-  entity    String   // Product, Order, User, etc.
+  action    String // CREATE, UPDATE, DELETE, LOGIN, VIEW, etc.
+  entity    String // Product, Order, User, etc.
   entityId  String
   userId    String?
-  changes   String?  // JSON stringified changes
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  changes   String? // JSON stringified changes
   ip        String?
   userAgent String?
   createdAt DateTime @default(now())
@@ -177,3 +253,230 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+enum NotificationType {
+  ORDER_NEW
+  ORDER_STATUS_CHANGED
+  PAYMENT_RECEIVED
+  STOCK_LOW
+  STOCK_OUT
+  ORDER_READY
+  ORDER_DELIVERED
+  SYSTEM_ALERT
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  data      String? // JSON avec données supplémentaires
+  read      Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model Quote {
+  id                 String      @id @default(uuid())
+  shopId             String
+  shop               Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  quoteNumber        String      @unique
+  validUntil         DateTime
+  status             QuoteStatus @default(DRAFT)
+  totalHT            Float       @default(0)
+  totalTVA           Float       @default(0)
+  totalTTC           Float       @default(0)
+  notes              String?
+  fileUrl            String?
+  convertedToOrderId String?     @unique
+  convertedToOrder   Order?      @relation("QuoteToOrder", fields: [convertedToOrderId], references: [id], onDelete: SetNull)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  items              QuoteItem[]
+
+  @@index([shopId])
+  @@index([quoteNumber])
+  @@index([status])
+  @@index([validUntil])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id        String  @id @default(uuid())
+  quoteId   String
+  quote     Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Float
+  priceHT   Float
+  totalHT   Float
+  totalTVA  Float
+  totalTTC  Float
+
+  @@index([quoteId])
+  @@index([productId])
+  @@map("quote_items")
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+model Invoice {
+  id            String    @id @default(uuid())
+  orderId       String    @unique
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoiceNumber String    @unique
+  fileUrl       String?
+  generatedAt   DateTime  @default(now())
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([orderId])
+  @@index([invoiceNumber])
+  @@map("invoices")
+}
+
+enum RecurrenceType {
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+model RecurringOrder {
+  id         String          @id @default(uuid())
+  shopId     String
+  shop       Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name       String
+  frequency  RecurrenceType
+  dayOfWeek  Int? // 0-6 (dimanche-samedi)
+  dayOfMonth Int? // 1-31
+  items      RecurringItem[]
+  orders     Order[]         // Commandes générées par cette commande récurrente
+  isActive   Boolean         @default(true)
+  nextRun    DateTime
+  lastRun    DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([shopId])
+  @@index([nextRun])
+  @@map("recurring_orders")
+}
+
+model RecurringItem {
+  id               String         @id @default(uuid())
+  recurringOrderId String
+  recurringOrder   RecurringOrder @relation(fields: [recurringOrderId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product        @relation(fields: [productId], references: [id])
+  quantity         Float
+
+  @@index([recurringOrderId])
+  @@map("recurring_order_items")
+}
+
+enum PromotionType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+}
+
+enum PromotionTarget {
+  ALL_PRODUCTS
+  CATEGORY
+  SPECIFIC_PRODUCTS
+  ENTIRE_ORDER
+}
+
+model Promotion {
+  id          String          @id @default(uuid())
+  code        String          @unique
+  name        String
+  description String?
+  type        PromotionType
+  value       Float // Pourcentage ou montant
+  minAmount   Float? // Montant minimum de commande
+  maxDiscount Float? // Remise maximale
+  validFrom   DateTime
+  validTo     DateTime
+  usageLimit  Int? // Nombre d'utilisations max
+  usageCount  Int             @default(0)
+  isActive    Boolean         @default(true)
+  appliesTo   PromotionTarget
+  productIds  String[] // Si applicable à certains produits
+  createdAt   DateTime        @default(now())
+
+  @@index([code])
+  @@index([isActive, validFrom, validTo])
+  @@map("promotions")
+}
+
+enum DeliveryStatus {
+  SCHEDULED
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+model Delivery {
+  id           String         @id @default(uuid())
+  orderId      String         @unique
+  order        Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  deliveryDate DateTime
+  timeSlot     String? // "09:00-12:00" par exemple
+  driverId     String?
+  driver       User?          @relation("DriverDeliveries", fields: [driverId], references: [id])
+  status       DeliveryStatus
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([deliveryDate])
+  @@index([driverId])
+  @@map("deliveries")
+}
+
+model Message {
+  id         String    @id @default(uuid())
+  fromUserId String
+  fromUser   User      @relation("SentMessages", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUserId   String
+  toUser     User      @relation("ReceivedMessages", fields: [toUserId], references: [id], onDelete: Cascade)
+  subject    String?
+  content    String
+  read       Boolean   @default(false)
+  readAt     DateTime?
+  relatedTo  String? // "order:123" pour lier à une commande
+  createdAt  DateTime  @default(now())
+
+  @@index([toUserId, read])
+  @@index([fromUserId])
+  @@map("messages")
+}
+
+model Setting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  type        String // "string", "number", "boolean", "json"
+  category    String // "general", "email", "payment", "stock", etc.
+  description String?
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@index([category])
+  @@map("settings")
+}

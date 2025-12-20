@@ -15,22 +15,6 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Vérifier si l'utilisateur est déjà connecté au chargement
-    const initializeAuth = async () => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        // S'assurer que le token est dans les headers axios
-        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        await fetchUser();
-      } else {
-        setLoading(false);
-      }
-    };
-
-    initializeAuth();
-  }, []);
-
   const fetchUser = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -50,27 +34,69 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         return response.data.user;
       } else {
-        throw new Error('Réponse invalide du serveur');
+        // Réponse invalide, nettoyer et permettre l'accès à la page de login
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        delete api.defaults.headers.common['Authorization'];
+        setUser(null);
+        setLoading(false);
+        return null;
       }
     } catch (error) {
       console.error('Erreur récupération utilisateur:', error);
       
-      // Ne pas supprimer le token immédiatement - laisser l'intercepteur gérer
-      // L'intercepteur axios tentera de rafraîchir le token automatiquement
+      // Pour toutes les erreurs (401, réseau, timeout, etc.), nettoyer et permettre l'accès
+      // L'intercepteur axios gérera le refresh si nécessaire, mais ici on s'assure que loading devient false
       if (error.response?.status === 401) {
-        // Si c'est une erreur 401, l'intercepteur va essayer de rafraîchir
-        // Ne pas supprimer le token ici, laisser l'intercepteur gérer
+        // Token invalide ou expiré
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        delete api.defaults.headers.common['Authorization'];
         setUser(null);
         setLoading(false);
-        // Ne pas rediriger ici, l'intercepteur s'en occupe
         return null;
       }
       
-      // Pour les autres erreurs (réseau, etc.), ne pas déconnecter
+      // Pour les erreurs réseau ou autres erreurs, permettre quand même l'accès à l'app
+      // L'utilisateur pourra essayer de se connecter
+      setUser(null);
       setLoading(false);
       return null;
     }
   };
+
+  useEffect(() => {
+    // Vérifier si l'utilisateur est déjà connecté au chargement
+    const initializeAuth = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          // S'assurer que le token est dans les headers axios
+          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          await fetchUser();
+        } else {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Erreur lors de l\'initialisation:', error);
+        // En cas d'erreur, permettre quand même l'accès à l'application
+        setLoading(false);
+        setUser(null);
+      }
+    };
+
+    // Timeout de sécurité pour éviter un chargement infini
+    const timeoutId = setTimeout(() => {
+      if (loading) {
+        console.warn('Timeout lors de l\'initialisation de l\'authentification');
+        setLoading(false);
+      }
+    }, 10000); // 10 secondes maximum
+
+    initializeAuth().finally(() => {
+      clearTimeout(timeoutId);
+    });
+  }, []);
 
   const login = async (email, password) => {
     try {

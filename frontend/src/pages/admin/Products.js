@@ -12,6 +12,8 @@ const AdminProducts = () => {
   const [selectedCategory, setSelectedCategory] = useState('TOUS');
   const [selectedSubCategory, setSelectedSubCategory] = useState('TOUS');
   const [categoriesConfig, setCategoriesConfig] = useState(null);
+  const [customCategories, setCustomCategories] = useState([]);
+  const [useCustomCategory, setUseCustomCategory] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   const [pagination, setPagination] = useState({
@@ -28,7 +30,9 @@ const AdminProducts = () => {
     tvaRate: '5.5',
     unit: 'kg',
     category: 'FRUITS',
+    categoryId: '',
     subCategory: '',
+    subCategoryId: '',
     isActive: true,
     isVisibleToClients: true,
     stock: '0',
@@ -39,7 +43,19 @@ const AdminProducts = () => {
   useEffect(() => {
     fetchProducts(currentPage);
     fetchCategoriesConfig();
+    fetchCustomCategories();
   }, [currentPage]);
+
+  const fetchCustomCategories = async () => {
+    try {
+      const response = await api.get('/categories');
+      if (response.data.success) {
+        setCustomCategories(response.data.categories);
+      }
+    } catch (error) {
+      console.error('Erreur chargement catégories personnalisées:', error);
+    }
+  };
 
   const fetchCategoriesConfig = async () => {
     try {
@@ -161,13 +177,17 @@ const AdminProducts = () => {
 
   const handleEdit = (product) => {
     setEditingProduct(product);
+    const hasCustomCategory = product.customCategory || product.categoryId;
+    setUseCustomCategory(hasCustomCategory ? true : false);
     setFormData({
       name: product.name,
       priceHT: product.priceHT,
       tvaRate: product.tvaRate,
       unit: product.unit,
       category: product.category || 'FRUITS',
+      categoryId: product.categoryId || '',
       subCategory: product.subCategory || '',
+      subCategoryId: product.subCategoryId || '',
       isActive: product.isActive,
       isVisibleToClients: product.isVisibleToClients !== undefined ? product.isVisibleToClients : true,
       stock: product.stock || '0',
@@ -321,41 +341,105 @@ const AdminProducts = () => {
 
             <div className="form-row">
               <div className="form-group">
-                <label>Catégorie *</label>
+                <label>Type de catégorie</label>
                 <select
-                  name="category"
-                  value={formData.category}
+                  value={useCustomCategory ? 'custom' : 'default'}
                   onChange={(e) => {
-                    handleInputChange(e);
-                    // Réinitialiser la sous-catégorie quand la catégorie change
-                    setFormData(prev => ({ ...prev, category: e.target.value, subCategory: '' }));
+                    const useCustom = e.target.value === 'custom';
+                    setUseCustomCategory(useCustom);
+                    setFormData(prev => ({
+                      ...prev,
+                      category: useCustom ? '' : 'FRUITS',
+                      categoryId: useCustom ? '' : '',
+                      subCategory: '',
+                      subCategoryId: '',
+                    }));
                   }}
-                  required
                 >
-                  <option value="FRUITS">🍎 Fruits</option>
-                  <option value="LEGUMES">🥬 Légumes</option>
-                  <option value="HERBES">🌿 Herbes aromatiques</option>
-                  <option value="FRUITS_SECS">🥜 Fruits secs</option>
+                  <option value="default">Catégories par défaut</option>
+                  <option value="custom">Catégories personnalisées</option>
                 </select>
               </div>
 
               <div className="form-group">
-                <label>Sous-catégorie</label>
-                <select
-                  name="subCategory"
-                  value={formData.subCategory}
-                  onChange={handleInputChange}
-                >
-                  <option value="">Auto (détectée)</option>
-                  {categoriesConfig && categoriesConfig[formData.category]?.subCategories && 
-                    Object.entries(categoriesConfig[formData.category].subCategories).map(([key, subCat]) => (
-                      <option key={key} value={key}>
-                        {subCat.icon} {subCat.name}
+                <label>Catégorie *</label>
+                {useCustomCategory ? (
+                  <select
+                    name="categoryId"
+                    value={formData.categoryId}
+                    onChange={(e) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        categoryId: e.target.value,
+                        subCategoryId: '',
+                      }));
+                    }}
+                    required
+                  >
+                    <option value="">Sélectionner une catégorie</option>
+                    {customCategories.map(cat => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.icon || '📁'} {cat.name}
                       </option>
-                    ))
-                  }
-                </select>
-                <small>Laissé vide, la sous-catégorie sera détectée automatiquement</small>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    name="category"
+                    value={formData.category}
+                    onChange={(e) => {
+                      handleInputChange(e);
+                      setFormData(prev => ({ ...prev, category: e.target.value, subCategory: '' }));
+                    }}
+                    required
+                  >
+                    <option value="FRUITS">🍎 Fruits</option>
+                    <option value="LEGUMES">🥬 Légumes</option>
+                    <option value="HERBES">🌿 Herbes aromatiques</option>
+                    <option value="FRUITS_SECS">🥜 Fruits secs</option>
+                  </select>
+                )}
+              </div>
+
+              <div className="form-group">
+                <label>Sous-catégorie</label>
+                {useCustomCategory && formData.categoryId ? (
+                  <select
+                    name="subCategoryId"
+                    value={formData.subCategoryId || ''}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, subCategoryId: e.target.value }));
+                    }}
+                  >
+                    <option value="">Aucune sous-catégorie</option>
+                    {customCategories
+                      .find(cat => cat.id === formData.categoryId)
+                      ?.subCategories
+                      ?.map(subCat => (
+                        <option key={subCat.id} value={subCat.id}>
+                          {subCat.icon || '📌'} {subCat.name}
+                        </option>
+                      ))}
+                  </select>
+                ) : (
+                  <select
+                    name="subCategory"
+                    value={formData.subCategory}
+                    onChange={handleInputChange}
+                  >
+                    <option value="">Auto (détectée)</option>
+                    {categoriesConfig && categoriesConfig[formData.category]?.subCategories && 
+                      Object.entries(categoriesConfig[formData.category].subCategories).map(([key, subCat]) => (
+                        <option key={key} value={key}>
+                          {subCat.icon} {subCat.name}
+                        </option>
+                      ))
+                    }
+                  </select>
+                )}
+                {!useCustomCategory && (
+                  <small>Laissé vide, la sous-catégorie sera détectée automatiquement</small>
+                )}
               </div>
             </div>
 

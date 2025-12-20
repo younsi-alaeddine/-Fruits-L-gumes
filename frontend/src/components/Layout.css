@@ -81,12 +81,36 @@
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   letter-spacing: -0.5px;
   white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.navbar-brand:hover h2 {
+  transform: scale(1.05);
 }
 
 .navbar-actions {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+.navbar-icon-message {
+  font-size: 1.5rem;
+  color: white;
+  text-decoration: none;
+  padding: 0.5rem;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.3s;
+}
+
+.navbar-icon-message:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .navbar-menu {
@@ -362,4 +386,3 @@
     transform: translateY(0);
   }
 }
-

@@ -107,3 +107,9 @@ Procfile
 nginx-config.conf
 backend/railway.json
 frontend/vercel.json
+
+# Documentation et guides (garder seulement README.md)
+*.md
+!README.md
+!backend/README.md
+!frontend/README.md

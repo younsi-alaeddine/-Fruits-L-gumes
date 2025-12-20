@@ -128,9 +128,16 @@
   background-color: #e7f3ff;
 }
 
-.notification-message {
+.notification-title {
+  font-weight: 600;
   color: #333;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  margin-bottom: 0.25rem;
+}
+
+.notification-message {
+  color: #666;
+  font-size: 0.85rem;
   margin-bottom: 0.25rem;
 }
 
@@ -193,4 +200,3 @@
     font-size: 0.7rem;
   }
 }
-

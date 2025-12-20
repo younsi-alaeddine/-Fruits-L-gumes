@@ -101,9 +101,50 @@ const logAction = async (action, entity, entityId, userId, changes = null, req =
   });
 };
 
+/**
+ * Logger un accès/consultation (READ/VIEW)
+ */
+const logAccess = async (entity, entityId, userId, details = null, req = null) => {
+  await createAuditLog({
+    action: 'VIEW',
+    entity,
+    entityId,
+    userId,
+    changes: details,
+    ip: req?.ip,
+    userAgent: req?.get('user-agent'),
+  });
+};
+
+/**
+ * Middleware pour logger automatiquement les accès GET sur certaines routes
+ */
+const logAccessMiddleware = (entity, getEntityId = (req) => req.params.id) => {
+  return async (req, res, next) => {
+    // Logger après une requête GET réussie
+    if (req.method === 'GET' && req.user) {
+      try {
+        const entityId = getEntityId(req);
+        if (entityId) {
+          await logAccess(entity, entityId, req.user.id, {
+            route: req.path,
+            query: req.query,
+          }, req);
+        }
+      } catch (error) {
+        // Ne pas bloquer la requête si l'audit échoue
+        logger.warn('Erreur logging accès', { error: error.message });
+      }
+    }
+    next();
+  };
+};
+
 module.exports = {
   createAuditLog,
   auditMiddleware,
   logAction,
+  logAccess,
+  logAccessMiddleware,
 };
 

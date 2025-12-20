@@ -94,9 +94,63 @@ const requireClient = (req, res, next) => {
   next();
 };
 
+/**
+ * Middleware d'autorisation - Vérifie si l'utilisateur a un des rôles autorisés
+ */
+const requireRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user?.role) {
+      return res.status(403).json({ message: 'Accès refusé - Authentification requise' });
+    }
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ 
+        message: `Accès refusé - Rôle requis: ${allowedRoles.join(' ou ')}` 
+      });
+    }
+    next();
+  };
+};
+
+/**
+ * Middleware pour rôles de préparation (PREPARATEUR, MANAGER, ADMIN)
+ */
+const requirePreparation = requireRole('PREPARATEUR', 'MANAGER', 'ADMIN');
+
+/**
+ * Middleware pour rôles de livraison (LIVREUR, MANAGER, ADMIN)
+ */
+const requireDelivery = requireRole('LIVREUR', 'MANAGER', 'ADMIN');
+
+/**
+ * Middleware pour rôles commerciaux (COMMERCIAL, MANAGER, ADMIN)
+ */
+const requireCommercial = requireRole('COMMERCIAL', 'MANAGER', 'ADMIN');
+
+/**
+ * Middleware pour rôles de gestion de stock (STOCK_MANAGER, MANAGER, ADMIN)
+ */
+const requireStock = requireRole('STOCK_MANAGER', 'MANAGER', 'ADMIN');
+
+/**
+ * Middleware pour rôles financiers (FINANCE, MANAGER, ADMIN)
+ */
+const requireFinance = requireRole('FINANCE', 'MANAGER', 'ADMIN');
+
+/**
+ * Middleware pour rôles de management (MANAGER, ADMIN)
+ */
+const requireManager = requireRole('MANAGER', 'ADMIN');
+
 module.exports = {
   authenticate,
   requireAdmin,
-  requireClient
+  requireClient,
+  requireRole,
+  requirePreparation,
+  requireDelivery,
+  requireCommercial,
+  requireStock,
+  requireFinance,
+  requireManager
 };
 

@@ -3,7 +3,7 @@ const rateLimit = require('express-rate-limit');
 // Rate limiter général pour toutes les routes
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Plus permissif en développement
+  max: process.env.NODE_ENV === 'production' ? 100 : 5000, // Très permissif en développement
   message: {
     success: false,
     message: 'Trop de requêtes depuis cette IP, veuillez réessayer plus tard.',
@@ -37,19 +37,23 @@ const authLimiter = rateLimit({
   },
 });
 
-// Rate limiter pour la création de commandes
+// Rate limiter pour les commandes
 const orderLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 10, // Maximum 10 commandes par minute
-  message: 'Trop de commandes créées. Veuillez patienter un moment.',
+  max: process.env.NODE_ENV === 'production' ? 10 : 200, // Très permissif en développement pour les GET
+  message: 'Trop de requêtes. Veuillez patienter un moment.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // En développement, ne pas limiter les requêtes GET (lecture de commandes)
+    return process.env.NODE_ENV !== 'production' && req.method === 'GET';
+  },
 });
 
 // Rate limiter pour l'upload de fichiers
 const uploadLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 5, // Maximum 5 uploads par minute
+  max: process.env.NODE_ENV === 'production' ? 5 : 50, // Plus permissif en développement
   message: 'Trop de fichiers uploadés. Veuillez patienter un moment.',
   standardHeaders: true,
   legacyHeaders: false,

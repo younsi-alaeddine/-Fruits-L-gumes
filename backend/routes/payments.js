@@ -3,9 +3,193 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const prisma = require('../config/database');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const PDFDocument = require('pdfkit');
+const logger = require('../utils/logger');
 
-// Toutes les routes nécessitent l'authentification et le rôle ADMIN
+/**
+ * Générer un numéro de reçu unique
+ */
+const generateReceiptNumber = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `REC-${year}${month}-${random}`;
+};
+
+/**
+ * Générer le PDF du reçu de paiement
+ */
+const generatePaymentReceiptPDF = async (payment, order, shop) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50 });
+      const chunks = [];
+      
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      // En-tête
+      doc.fontSize(20).text('REÇU DE PAIEMENT', { align: 'center' });
+      doc.moveDown();
+      
+      // Informations entreprise
+      doc.fontSize(12).text('Distribution Fruits & Légumes', { align: 'left' });
+      doc.fontSize(10).text('123 Rue des Fruits', { align: 'left' });
+      doc.fontSize(10).text('75000 Paris, France', { align: 'left' });
+      doc.moveDown();
+
+      // Numéro de reçu et date
+      doc.fontSize(10);
+      doc.text(`Numéro: ${payment.receiptNumber || payment.id.substring(0, 8)}`, { align: 'right' });
+      doc.text(`Date: ${payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString('fr-FR') : new Date(payment.createdAt).toLocaleDateString('fr-FR')}`, { align: 'right' });
+      doc.moveDown(2);
+
+      // Informations client
+      doc.fontSize(12).text('Reçu de:', { underline: true });
+      doc.fontSize(10);
+      doc.text(shop.name);
+      doc.text(shop.address);
+      doc.text(`${shop.postalCode} ${shop.city}`);
+      if (shop.phone) {
+        doc.text(`Tél: ${shop.phone}`);
+      }
+      doc.moveDown(2);
+
+      // Détails du paiement
+      doc.fontSize(12).text('Détails du paiement:', { underline: true });
+      doc.moveDown(0.5);
+      
+      doc.fontSize(10);
+      doc.text(`Commande: ${order.orderNumber || order.id.substring(0, 8)}`, 50, doc.y);
+      doc.moveDown();
+      doc.text(`Montant: ${payment.amount.toFixed(2)} €`, 50, doc.y);
+      doc.moveDown();
+      doc.text(`Méthode: ${payment.paymentMethod || 'Non spécifiée'}`, 50, doc.y);
+      doc.moveDown();
+      doc.text(`Statut: ${payment.status}`, 50, doc.y);
+      doc.moveDown(2);
+      
+      // Notes
+      if (payment.notes) {
+        doc.fontSize(10).text('Notes:', { underline: true });
+        doc.text(payment.notes);
+        doc.moveDown();
+      }
+      
+      // Total en gras
+      doc.fontSize(14).font('Helvetica-Bold');
+      doc.text(`Total payé: ${payment.amount.toFixed(2)} €`, 50, doc.y);
+      doc.moveDown(2);
+      
+      doc.fontSize(10).font('Helvetica');
+      doc.text('Merci pour votre paiement.', { align: 'center' });
+      
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+// Toutes les routes nécessitent l'authentification
 router.use(authenticate);
+
+/**
+ * GET /api/payments/:id/download-receipt
+ * Télécharger le PDF du reçu de paiement (accessible aux clients et admins)
+ */
+router.get('/:id/download-receipt', async (req, res) => {
+  try {
+    const payment = await prisma.payment.findUnique({
+      where: { id: req.params.id },
+      include: {
+        order: {
+          include: {
+            shop: true,
+          },
+        },
+      },
+    });
+
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Paiement non trouvé',
+      });
+    }
+
+    // Vérifier les permissions
+    // Les admins ont accès à tous les reçus
+    if (!req.user || req.user.role !== 'ADMIN') {
+      // Pour les clients, vérifier que le paiement appartient à leur magasin
+      if (req.user && req.user.role === 'CLIENT') {
+        // Vérifier que l'utilisateur a un magasin associé
+        if (!req.user.shop) {
+          logger.warn('Client sans magasin tente de télécharger un reçu', {
+            userId: req.user.id,
+            paymentId: req.params.id,
+          });
+          return res.status(403).json({
+            success: false,
+            message: 'Accès refusé - Aucun magasin associé',
+          });
+        }
+        
+        // Vérifier que le paiement appartient au magasin du client
+        if (payment.order.shopId !== req.user.shop.id) {
+          logger.warn('Client tente de télécharger un reçu d\'un autre magasin', {
+            userId: req.user.id,
+            clientShopId: req.user.shop.id,
+            paymentShopId: payment.order.shopId,
+            paymentId: req.params.id,
+          });
+          return res.status(403).json({
+            success: false,
+            message: 'Accès refusé - Ce paiement ne vous appartient pas',
+          });
+        }
+      } else {
+        // Autres rôles non autorisés
+        return res.status(403).json({
+          success: false,
+          message: 'Accès refusé - Permissions insuffisantes',
+        });
+      }
+    }
+
+    // Générer le numéro de reçu s'il n'existe pas
+    if (!payment.receiptNumber) {
+      let receiptNumber = generateReceiptNumber();
+      let exists = await prisma.payment.findUnique({ where: { receiptNumber } });
+      while (exists) {
+        receiptNumber = generateReceiptNumber();
+        exists = await prisma.payment.findUnique({ where: { receiptNumber } });
+      }
+      
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { receiptNumber },
+      });
+      payment.receiptNumber = receiptNumber;
+    }
+
+    const pdfBuffer = await generatePaymentReceiptPDF(payment, payment.order, payment.order.shop);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="recu-paiement-${payment.receiptNumber || payment.id.substring(0, 8)}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    logger.error('Erreur génération PDF reçu de paiement:', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération du PDF',
+    });
+  }
+});
+
+// Les routes suivantes nécessitent ADMIN
 router.use(requireAdmin);
 
 /**
@@ -46,7 +230,7 @@ router.use(requireAdmin);
  *       403:
  *         description: Accès refusé - Admin requis
  */
-router.get('/', async (req, res) => {
+router.get('/', requireAdmin, async (req, res) => {
   try {
     const { orderId, status, startDate, endDate } = req.query;
     const where = {};
@@ -231,6 +415,7 @@ router.post(
  */
 router.put(
   '/:id',
+  requireAdmin,
   [
     body('amount').optional().isFloat({ min: 0 }),
     body('paymentMethod').optional().isIn(['CASH', 'CARD', 'TRANSFER', 'CHECK']),
@@ -374,7 +559,7 @@ router.delete('/:id', async (req, res) => {
  * GET /api/payments/order/:orderId
  * Paiements d'une commande spécifique
  */
-router.get('/order/:orderId', async (req, res) => {
+router.get('/order/:orderId', requireAdmin, async (req, res) => {
   try {
     const payments = await prisma.payment.findMany({
       where: { orderId: req.params.orderId },

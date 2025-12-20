@@ -4,6 +4,120 @@ const { body, validationResult } = require('express-validator');
 const prisma = require('../config/database');
 const { authenticate, requireClient } = require('../middleware/auth');
 const { calculateOrderItemTotals, calculateOrderTotals } = require('../utils/calculations');
+const PDFDocument = require('pdfkit');
+const logger = require('../utils/logger');
+
+/**
+ * Générer un numéro de bon de commande unique
+ */
+const generateOrderNumber = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `CMD-${year}${month}-${random}`;
+};
+
+/**
+ * Générer le PDF du bon de commande
+ */
+const generateOrderConfirmationPDF = async (order, shop) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50 });
+      const chunks = [];
+      
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      // En-tête
+      doc.fontSize(20).text('BON DE COMMANDE', { align: 'center' });
+      doc.moveDown();
+      
+      // Informations entreprise
+      doc.fontSize(12).text('Distribution Fruits & Légumes', { align: 'left' });
+      doc.fontSize(10).text('123 Rue des Fruits', { align: 'left' });
+      doc.fontSize(10).text('75000 Paris, France', { align: 'left' });
+      doc.moveDown();
+
+      // Numéro de commande et date
+      doc.fontSize(10);
+      doc.text(`Numéro: ${order.orderNumber || order.id.substring(0, 8)}`, { align: 'right' });
+      doc.text(`Date: ${new Date(order.createdAt).toLocaleDateString('fr-FR')}`, { align: 'right' });
+      doc.moveDown(2);
+
+      // Informations client
+      doc.fontSize(12).text('Commande pour:', { underline: true });
+      doc.fontSize(10);
+      doc.text(shop.name);
+      doc.text(shop.address);
+      doc.text(`${shop.postalCode} ${shop.city}`);
+      if (shop.phone) {
+        doc.text(`Tél: ${shop.phone}`);
+      }
+      doc.moveDown(2);
+
+      // Détails de la commande
+      doc.fontSize(12).text('Détails de la commande:', { underline: true });
+      doc.moveDown(0.5);
+      
+      // Tableau des produits
+      const tableTop = doc.y;
+      const itemHeight = 30;
+      
+      // En-têtes du tableau
+      doc.fontSize(10);
+      doc.text('Produit', 50, tableTop);
+      doc.text('Qté', 250, tableTop);
+      doc.text('Prix HT', 300, tableTop);
+      doc.text('TVA', 360, tableTop);
+      doc.text('Total TTC', 420, tableTop);
+      
+      let y = tableTop + 20;
+      
+      // Lignes des produits
+      order.items.forEach(item => {
+        doc.text(item.product.name, 50, y);
+        doc.text(`${item.quantity} ${item.product.unit}`, 250, y);
+        doc.text(`${item.priceHT.toFixed(2)} €`, 300, y);
+        doc.text(`${item.product.tvaRate}%`, 360, y);
+        doc.text(`${item.totalTTC.toFixed(2)} €`, 420, y);
+        y += itemHeight;
+      });
+      
+      doc.moveDown(2);
+      
+      // Totaux
+      const totalsY = doc.y;
+      doc.text('Sous-total HT:', 350, totalsY);
+      doc.text(`${order.totalHT.toFixed(2)} €`, 470, totalsY);
+      
+      doc.text('TVA:', 350, totalsY + 20);
+      doc.text(`${order.totalTVA.toFixed(2)} €`, 470, totalsY + 20);
+      
+      doc.fontSize(12).font('Helvetica-Bold');
+      doc.text('Total TTC:', 350, totalsY + 40);
+      doc.text(`${order.totalTTC.toFixed(2)} €`, 470, totalsY + 40);
+      
+      doc.fontSize(10).font('Helvetica');
+      doc.moveDown(2);
+      
+      // Statut
+      doc.fontSize(10).text(`Statut: ${order.status}`, { underline: true });
+      doc.moveDown();
+      
+      // Conditions
+      doc.fontSize(10).text('Conditions:', { underline: true });
+      doc.text('Cette commande sera préparée et livrée selon les modalités convenues.');
+      doc.text('Vous serez informé de l\'avancement de votre commande.');
+      
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
 
 /**
  * @swagger
@@ -198,6 +312,17 @@ router.post(
         order.stockWarnings = stockWarnings;
       }
 
+      // Créer une notification pour les admins
+      try {
+        const notificationService = require('../utils/notificationService');
+        await notificationService.notifyNewOrder(order);
+      } catch (notifError) {
+        logger.warn('Erreur création notification nouvelle commande', {
+          error: notifError.message,
+          orderId: order.id,
+        });
+      }
+
       // Envoyer email de confirmation au client
       try {
         const user = await prisma.user.findUnique({
@@ -304,6 +429,13 @@ router.get('/', authenticate, async (req, res) => {
               }
             }
           }
+        },
+        recurringOrder: {
+          select: {
+            id: true,
+            name: true,
+            frequency: true
+          }
         }
       },
       orderBy: { createdAt: 'desc' },
@@ -372,7 +504,15 @@ router.get('/:id', authenticate, async (req, res) => {
           include: {
             product: true
           }
-        }
+        },
+        recurringOrder: {
+          select: {
+            id: true,
+            name: true,
+            frequency: true
+          }
+        },
+        payments: true
       }
     });
 
@@ -490,6 +630,24 @@ router.put(
         }
       });
 
+      // Créer une notification si le statut a changé
+      if (oldStatus !== newStatus) {
+        try {
+          const notificationService = require('../utils/notificationService');
+          await notificationService.notifyOrderStatusChanged(
+            updatedOrder,
+            oldStatus,
+            newStatus,
+            req.user.id
+          );
+        } catch (notifError) {
+          logger.warn('Erreur création notification changement statut', {
+            error: notifError.message,
+            orderId: order.id,
+          });
+        }
+      }
+
       // Envoyer email de notification si le statut a changé
       if (oldStatus !== newStatus && order.shop?.user?.email) {
         try {
@@ -529,6 +687,69 @@ router.put(
     }
   }
 );
+
+/**
+ * GET /api/orders/:id/download-confirmation
+ * Télécharger le PDF du bon de commande
+ */
+router.get('/:id/download-confirmation', authenticate, async (req, res) => {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: {
+        shop: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Commande non trouvée',
+      });
+    }
+
+    // Vérifier les permissions
+    if (req.user.role === 'CLIENT' && order.shopId !== req.user.shop?.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé',
+      });
+    }
+
+    // Générer le numéro de commande s'il n'existe pas
+    if (!order.orderNumber) {
+      let orderNumber = generateOrderNumber();
+      let exists = await prisma.order.findUnique({ where: { orderNumber } });
+      while (exists) {
+        orderNumber = generateOrderNumber();
+        exists = await prisma.order.findUnique({ where: { orderNumber } });
+      }
+      
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { orderNumber },
+      });
+      order.orderNumber = orderNumber;
+    }
+
+    const pdfBuffer = await generateOrderConfirmationPDF(order, order.shop);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="bon-commande-${order.orderNumber || order.id.substring(0, 8)}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    logger.error('Erreur génération PDF bon de commande:', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération du PDF',
+    });
+  }
+});
 
 module.exports = router;
 

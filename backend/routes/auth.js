@@ -242,6 +242,17 @@ router.post(
 
       const { accessToken, refreshToken } = generateTokens(user.id);
 
+      // Logger la connexion dans l'audit trail
+      try {
+        const { logAction } = require('../utils/auditTrail');
+        await logAction('LOGIN', 'User', user.id, {
+          email: user.email,
+          role: user.role,
+        }, req);
+      } catch (auditError) {
+        logger.warn('Erreur logging connexion', { error: auditError.message });
+      }
+
       logger.info('Connexion réussie', {
         userId: user.id,
         email: user.email,

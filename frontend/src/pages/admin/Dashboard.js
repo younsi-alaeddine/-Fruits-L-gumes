@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { toast } from 'react-toastify';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -37,6 +39,7 @@ const AdminDashboard = () => {
   const [topProducts, setTopProducts] = useState([]);
   const [categoryDistribution, setCategoryDistribution] = useState(null);
   const [chartPeriod, setChartPeriod] = useState('month');
+  const [recentAuditLogs, setRecentAuditLogs] = useState([]);
 
   useEffect(() => {
     fetchDashboard();
@@ -44,6 +47,7 @@ const AdminDashboard = () => {
     fetchSalesEvolution();
     fetchTopProducts();
     fetchCategoryDistribution();
+    fetchRecentAuditLogs();
   }, []);
 
   useEffect(() => {
@@ -101,6 +105,17 @@ const AdminDashboard = () => {
       setCategoryDistribution(response.data.distribution);
     } catch (error) {
       console.error('Erreur chargement répartition catégories:', error);
+    }
+  };
+
+  const fetchRecentAuditLogs = async () => {
+    try {
+      const response = await api.get('/admin/audit-logs?limit=5&sortBy=createdAt&sortOrder=desc');
+      setRecentAuditLogs(response.data.logs || []);
+    } catch (error) {
+      console.error('Erreur chargement logs audit récents:', error);
+      // Ne pas bloquer le dashboard si les logs échouent
+      setRecentAuditLogs([]);
     }
   };
 
@@ -184,6 +199,21 @@ const AdminDashboard = () => {
     if (!dashboard?.ordersByStatusToday) return 0;
     const statusData = dashboard.ordersByStatusToday.find(s => s.status === status);
     return statusData?.count || 0;
+  };
+
+  const getEntityIcon = (entity) => {
+    const icons = {
+      Product: '📦',
+      Order: '🛒',
+      User: '👤',
+      Shop: '🏪',
+      Payment: '💰',
+      Stock: '📊',
+      Settings: '⚙️',
+      Promotion: '🎁',
+      Delivery: '🚚',
+    };
+    return icons[entity] || '📄';
   };
 
   if (loading) {
@@ -349,6 +379,38 @@ const AdminDashboard = () => {
                 <span className="status-value">{status.count}</span>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="stat-card audit-recent-card">
+          <div className="audit-card-header">
+            <h3>📋 Activités récentes</h3>
+            <a href="/admin/audit-logs" className="view-all-link">Voir tout</a>
+          </div>
+          <div className="audit-log-list">
+            {recentAuditLogs.length > 0 ? (
+              recentAuditLogs.map((log) => (
+                <div key={log.id} className="audit-log-item">
+                  <div className="audit-log-icon">{getEntityIcon(log.entity)}</div>
+                  <div className="audit-log-content">
+                    <div className="audit-log-action">
+                      <span className={`action-badge action-${log.action.toLowerCase()}`}>
+                        {log.action}
+                      </span>
+                      <span className="audit-entity">{log.entity}</span>
+                    </div>
+                    <div className="audit-log-user">
+                      {log.user ? `${log.user.name} (${log.user.role})` : 'Système'}
+                    </div>
+                    <div className="audit-log-time">
+                      {format(new Date(log.createdAt), 'dd/MM/yyyy HH:mm', { locale: fr })}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="no-audit-logs">Aucune activité récente</div>
+            )}
           </div>
         </div>
       </div>

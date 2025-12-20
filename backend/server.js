@@ -7,6 +7,11 @@ const compression = require('compression');
 
 dotenv.config();
 
+// Démarrer les jobs cron
+if (process.env.ENABLE_JOBS !== 'false') {
+  require('./jobs/recurring-orders');
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const logger = require('./utils/logger');
@@ -82,6 +87,17 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/shops', require('./routes/shops'));
 app.use('/api/stock', require('./routes/stock'));
 app.use('/api/payments', require('./routes/payments'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/invoices', require('./routes/invoices'));
+app.use('/api/recurring-orders', require('./routes/recurring-orders'));
+app.use('/api/promotions', require('./routes/promotions'));
+app.use('/api/deliveries', require('./routes/deliveries'));
+app.use('/api/settings', require('./routes/settings'));
+app.use('/api/messages', require('./routes/messages'));
+app.use('/api/reports', require('./routes/reports'));
+app.use('/api/categories', require('./routes/categories'));
+app.use('/api/quotes', require('./routes/quotes'));
+app.use('/api/client/finance', require('./routes/client-finance'));
 
 // Route racine
 app.get('/', (req, res) => {
@@ -101,6 +117,14 @@ app.get('/', (req, res) => {
       shops: '/api/shops',
       stock: '/api/stock',
       payments: '/api/payments',
+      notifications: '/api/notifications',
+      invoices: '/api/invoices',
+      'recurring-orders': '/api/recurring-orders',
+      promotions: '/api/promotions',
+      deliveries: '/api/deliveries',
+      settings: '/api/settings',
+      messages: '/api/messages',
+      reports: '/api/reports',
       docs: '/api-docs'
     },
     timestamp: new Date().toISOString()
@@ -122,6 +146,14 @@ app.get('/api', (req, res) => {
       shops: '/api/shops',
       stock: '/api/stock',
       payments: '/api/payments',
+      notifications: '/api/notifications',
+      invoices: '/api/invoices',
+      'recurring-orders': '/api/recurring-orders',
+      promotions: '/api/promotions',
+      deliveries: '/api/deliveries',
+      settings: '/api/settings',
+      messages: '/api/messages',
+      reports: '/api/reports',
       docs: '/api-docs'
     },
     timestamp: new Date().toISOString()

@@ -6,6 +6,9 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const bcrypt = require('bcrypt');
 
+// Routes d'audit
+router.use('/audit-logs', require('./audit-logs'));
+
 /**
  * @swagger
  * /api/admin/dashboard:

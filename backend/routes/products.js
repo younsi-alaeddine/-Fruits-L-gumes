@@ -124,6 +124,23 @@ router.get('/', authenticate, async (req, res) => {
 
     const products = await prisma.product.findMany({
       where,
+      include: {
+        customCategory: {
+          select: {
+            id: true,
+            name: true,
+            icon: true,
+            color: true,
+          },
+        },
+        customSubCategory: {
+          select: {
+            id: true,
+            name: true,
+            icon: true,
+          },
+        },
+      },
       orderBy,
       skip,
       take: limit,
@@ -290,25 +307,39 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
-          const { name, priceHT, tvaRate, unit, category, subCategory, isActive, stock, stockAlert } = req.body;
+          const { name, priceHT, tvaRate, unit, category, categoryId, subCategory, subCategoryId, isActive, stock, stockAlert } = req.body;
           const photoUrl = req.file ? `/uploads/products/${req.file.filename}` : null;
           
-          // Détecter automatiquement la sous-catégorie si non fournie
-          const detectedSubCategory = subCategory || detectSubCategory(name, category || 'FRUITS');
+          const productData = {
+            name,
+            priceHT: parseFloat(priceHT),
+            tvaRate: parseFloat(tvaRate || 5.5),
+            unit: unit || 'kg',
+            isActive: isActive !== undefined ? isActive === 'true' : true,
+            stock: stock !== undefined ? parseFloat(stock) : 0,
+            stockAlert: stockAlert !== undefined ? parseFloat(stockAlert) : 10,
+            photoUrl
+          };
+
+          // Si on utilise une catégorie personnalisée
+          if (categoryId) {
+            productData.categoryId = categoryId;
+            if (subCategoryId) {
+              productData.subCategoryId = subCategoryId;
+            }
+            // Catégories par défaut vides pour les produits avec catégories personnalisées
+            productData.category = 'FRUITS'; // Valeur par défaut pour rétrocompatibilité
+          } else {
+            // Utiliser les catégories par défaut
+            productData.category = category || 'FRUITS';
+            const detectedSubCategory = subCategory || detectSubCategory(name, productData.category);
+            if (detectedSubCategory) {
+              productData.subCategory = detectedSubCategory;
+            }
+          }
 
           const product = await prisma.product.create({
-            data: {
-              name,
-              priceHT: parseFloat(priceHT),
-              tvaRate: parseFloat(tvaRate || 5.5),
-              unit: unit || 'kg',
-              category: category || 'FRUITS',
-              subCategory: detectedSubCategory,
-              isActive: isActive !== undefined ? isActive === 'true' : true,
-              stock: stock !== undefined ? parseFloat(stock) : 0,
-              stockAlert: stockAlert !== undefined ? parseFloat(stockAlert) : 10,
-              photoUrl
-            }
+            data: productData
           });
 
       // Logger l'action
@@ -432,7 +463,20 @@ router.put(
               updateData.subCategory = detectSubCategory(req.body.name || product.name, req.body.category);
             }
           }
-          if (req.body.subCategory !== undefined) updateData.subCategory = req.body.subCategory;
+          // Gestion des catégories personnalisées
+          if (req.body.categoryId !== undefined) {
+            updateData.categoryId = req.body.categoryId || null;
+            updateData.subCategoryId = req.body.subCategoryId || null;
+            if (req.body.categoryId) {
+              updateData.subCategory = null; // Nettoyer les anciennes catégories par défaut
+            }
+          }
+          if (req.body.subCategoryId !== undefined && req.body.categoryId) {
+            updateData.subCategoryId = req.body.subCategoryId || null;
+          }
+          if (req.body.subCategory !== undefined && !req.body.categoryId) {
+            updateData.subCategory = req.body.subCategory;
+          }
           if (req.body.isActive !== undefined) updateData.isActive = req.body.isActive === 'true';
           if (req.body.isVisibleToClients !== undefined) updateData.isVisibleToClients = req.body.isVisibleToClients === 'true';
           if (req.body.stock !== undefined) updateData.stock = parseFloat(req.body.stock);

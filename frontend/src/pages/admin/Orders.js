@@ -509,6 +509,11 @@ const AdminOrders = () => {
                     <div>
                       <strong>{order.shop.name}</strong>
                       <div className="shop-city">{order.shop.city}</div>
+                      {order.recurringOrder && (
+                        <div className="recurring-badge" title={`Commande récurrente: ${order.recurringOrder.name} (${order.recurringOrder.frequency})`}>
+                          🔄 Récurrente
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td>{formatDate(order.createdAt)}</td>
@@ -518,6 +523,11 @@ const AdminOrders = () => {
                     <span className={`status-badge ${getStatusClass(order.status)}`}>
                       {getStatusLabel(order.status)}
                     </span>
+                    {order.recurringOrder && (
+                      <span className="recurring-indicator" title={`Commande récurrente: ${order.recurringOrder.name}`}>
+                        🔄
+                      </span>
+                    )}
                   </td>
                   <td>
                     <div className="action-buttons">
@@ -652,6 +662,22 @@ const AdminOrders = () => {
               {/* Informations magasin */}
               <div className="order-info-section">
                 <h3>📦 Informations magasin</h3>
+                {selectedOrder.recurringOrder && (
+                  <div className="recurring-order-info">
+                    <span className="recurring-badge-large">
+                      🔄 Commande récurrente
+                    </span>
+                    <div className="recurring-details">
+                      <strong>Nom:</strong> {selectedOrder.recurringOrder.name} <br />
+                      <strong>Fréquence:</strong> {
+                        selectedOrder.recurringOrder.frequency === 'DAILY' ? 'Quotidienne' :
+                        selectedOrder.recurringOrder.frequency === 'WEEKLY' ? 'Hebdomadaire' :
+                        selectedOrder.recurringOrder.frequency === 'MONTHLY' ? 'Mensuelle' :
+                        selectedOrder.recurringOrder.frequency
+                      }
+                    </div>
+                  </div>
+                )}
                 <div className="info-grid">
                   <div className="info-item">
                     <strong>Nom du magasin :</strong>

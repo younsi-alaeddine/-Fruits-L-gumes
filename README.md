@@ -314,6 +314,29 @@ npx prisma migrate reset  # Attention : supprime les données
 
 ## 📦 Production
 
+### Déploiement sur VPS
+
+Pour déployer sur un serveur VPS, consultez le guide complet :
+- **[GUIDE_DEPLOIEMENT_VPS.md](./GUIDE_DEPLOIEMENT_VPS.md)** - Guide complet de déploiement VPS
+
+**Démarrage rapide :**
+```bash
+# 1. Sur le serveur VPS
+sudo bash scripts/setup-vps.sh
+
+# 2. Configurer ecosystem.config.js avec vos variables d'environnement
+# 3. Configurer nginx.conf avec votre domaine
+# 4. Démarrer l'application
+pm2 start ecosystem.config.js
+```
+
+### Déploiement sur Render
+
+Pour déployer sur Render, utilisez le fichier `render.yaml` :
+- Le fichier `render.yaml` est déjà configuré
+- Connectez votre repository GitHub à Render
+- Render détectera automatiquement la configuration
+
 ### Build frontend
 ```bash
 cd frontend
@@ -324,6 +347,7 @@ npm run build
 - `NODE_ENV=production`
 - `DATABASE_URL` avec credentials production
 - `JWT_SECRET` fort et sécurisé
+- `FRONTEND_URL` avec le domaine de production
 - Configurer CORS pour le domaine de production
 
 ## 📄 Licence
