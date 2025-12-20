@@ -90,15 +90,56 @@ echo ""
 # ============================================
 echo -e "${YELLOW}📥 Étape 3: Récupération du code...${NC}"
 
-# Si le dossier existe déjà, faire un pull
+# Si le dossier existe déjà avec Git, faire un pull
 if [ -d "$APP_DIR/.git" ]; then
     echo "Mise à jour du code existant..."
     cd $APP_DIR
     git pull origin main || git pull origin master
 else
-    echo "⚠️  Le projet doit être cloné manuellement ou copié dans $APP_DIR"
-    echo "Exemple: git clone <votre-repo> $APP_DIR"
-    read -p "Appuyez sur Entrée une fois le code copié..."
+    # Demander l'URL du repository GitHub
+    echo ""
+    echo "Veuillez fournir l'URL de votre repository GitHub"
+    echo "Exemple: https://github.com/younsi-alaeddine/-Fruits-L-gumes.git"
+    read -p "URL du repository GitHub: " GIT_REPO
+    
+    if [ -z "$GIT_REPO" ]; then
+        echo -e "${RED}❌ URL du repository requise${NC}"
+        exit 1
+    fi
+    
+    # Vérifier si le dossier contient déjà des fichiers
+    if [ "$(ls -A $APP_DIR 2>/dev/null)" ]; then
+        echo -e "${YELLOW}⚠️  Le dossier $APP_DIR n'est pas vide${NC}"
+        read -p "Voulez-vous supprimer le contenu existant? (o/N): " CONFIRM
+        if [[ $CONFIRM =~ ^[Oo]$ ]]; then
+            sudo rm -rf $APP_DIR/*
+            sudo rm -rf $APP_DIR/.* 2>/dev/null || true
+        else
+            echo "Veuillez vider le dossier manuellement et relancer le script"
+            exit 1
+        fi
+    fi
+    
+    # Cloner le repository
+    echo "Clonage du repository..."
+    git clone $GIT_REPO $APP_DIR
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Erreur lors du clonage du repository${NC}"
+        echo "Vérifiez l'URL et vos permissions Git"
+        exit 1
+    fi
+    
+    # Donner les permissions
+    sudo chown -R $USER:$USER $APP_DIR
+fi
+
+# Vérifier que les fichiers essentiels existent
+if [ ! -f "$BACKEND_DIR/package.json" ]; then
+    echo -e "${RED}❌ Erreur: package.json introuvable dans $BACKEND_DIR${NC}"
+    echo "Le clonage n'a peut-être pas fonctionné correctement"
+    echo "Vérifiez que le repository contient bien les dossiers backend/ et frontend/"
+    exit 1
 fi
 
 echo -e "${GREEN}✅ Code récupéré${NC}"
