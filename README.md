@@ -158,6 +158,39 @@ L'application sera accessible sur :
 - **Frontend** : http://localhost:3000
 - **Backend API** : http://localhost:5000
 
+### 🚀 Démarrage Rapide pour Nouveaux Utilisateurs
+
+1. **Premier lancement :**
+   ```bash
+   # Installer les dépendances
+   cd backend && npm install
+   cd ../frontend && npm install
+   
+   # Configurer la base de données
+   cd ../backend
+   npx prisma generate
+   npx prisma migrate dev
+   
+   # Créer un admin
+   npm run create-admin
+   ```
+
+2. **Démarrer l'application :**
+   ```bash
+   # Terminal 1 - Backend
+   cd backend
+   npm run dev
+   
+   # Terminal 2 - Frontend
+   cd frontend
+   npm start
+   ```
+
+3. **Première connexion :**
+   - Aller sur http://localhost:3000
+   - Se connecter avec le compte admin créé
+   - Ou créer un compte client via `/register`
+
 ## 📁 Structure du Projet
 
 ```
@@ -223,11 +256,283 @@ Voir `COMPTES_DEMO.md` pour plus de détails.
 ### Se connecter en tant qu'admin
 Utiliser le compte demo `admin@demo.com` / `admin123` ou créer un utilisateur avec le rôle `ADMIN` en base de données
 
+## 📖 Guide d'Utilisation
+
+### 🎭 Rôles Utilisateurs et Permissions
+
+L'application supporte plusieurs rôles avec des permissions différentes :
+
+| Rôle | Accès | Permissions Principales |
+|------|-------|------------------------|
+| **CLIENT** | Dashboard client | Passer commandes, voir historique, consulter factures, messages |
+| **ADMIN** | Dashboard admin complet | Toutes les permissions (produits, commandes, clients, stats, paramètres) |
+| **PREPARATEUR** | Dashboard préparateur | Voir commandes à préparer, changer statut PREPARATION → LIVRAISON |
+| **LIVREUR** | Dashboard livreur | Voir livraisons assignées, changer statut LIVRAISON → LIVREE |
+| **COMMERCIAL** | Dashboard commercial | Gestion clients, devis, commandes, statistiques ventes |
+| **STOCK_MANAGER** | Dashboard stock | Gestion stock, alertes, ajustements |
+| **FINANCE** | Dashboard finance | Facturation, paiements, rapports financiers |
+| **MANAGER** | Dashboard manager | Vue d'ensemble, statistiques, rapports consolidés |
+
+**Routes par rôle :**
+- `/client/*` : Accessible aux CLIENT
+- `/admin/*` : Accessible aux ADMIN
+- `/preparateur/*` : Accessible aux PREPARATEUR
+- `/livreur/*` : Accessible aux LIVREUR
+- `/commercial/*` : Accessible aux COMMERCIAL
+- `/stock/*` : Accessible aux STOCK_MANAGER
+- `/finance/*` : Accessible aux FINANCE
+- `/manager/*` : Accessible aux MANAGER
+
+---
+
+## 🔄 Déroulement du Programme - Workflow Complet
+
+### 📋 Processus de Commande (Cycle de Vie)
+
+#### Étape 1 : Inscription Client
+1. Le client accède à la page d'inscription (`/register`)
+2. Remplit le formulaire :
+   - Nom et prénom
+   - Email (unique)
+   - Mot de passe
+   - Informations du magasin (nom, adresse, ville, code postal, téléphone)
+3. Le compte CLIENT est créé automatiquement
+4. Le client reçoit un email de confirmation (si configuré)
+
+#### Étape 2 : Connexion
+1. Accès à la page de connexion (`/login`)
+2. Saisie de l'email et du mot de passe
+3. Authentification JWT
+4. Redirection selon le rôle :
+   - **CLIENT** → Dashboard client (`/client`)
+   - **ADMIN** → Dashboard admin (`/admin`)
+   - Autres rôles → Leurs dashboards respectifs
+
+#### Étape 3 : Consultation du Catalogue (Client)
+1. Le client accède à son dashboard
+2. Visualise le catalogue de produits disponibles
+3. Peut filtrer par :
+   - Catégories (Fruits, Légumes, Herbes, etc.)
+   - Sous-catégories
+   - Recherche textuelle
+4. Chaque produit affiche :
+   - Photo
+   - Nom
+   - Prix HT
+   - Prix TTC (avec TVA)
+   - Unité (kg, pièce, caisse, botte)
+   - Stock disponible
+
+#### Étape 4 : Création d'une Commande
+1. **Ajout au panier** :
+   - Le client clique sur un produit
+   - Sélectionne la quantité désirée
+   - Ajoute au panier
+
+2. **Gestion du panier** :
+   - Visualisation des produits sélectionnés
+   - Modification des quantités
+   - Suppression d'articles
+   - Calcul automatique des totaux (HT, TVA, TTC)
+
+3. **Validation de commande** :
+   - Le client clique sur "Passer commande"
+   - La commande est créée avec le statut **NEW** (Nouvelle)
+   - Numéro de commande généré automatiquement
+   - Notification envoyée à l'admin
+
+#### Étape 5 : Traitement de la Commande (Admin/Préparateur)
+
+**Statut : NEW → PREPARATION**
+1. L'admin ou le préparateur voit la nouvelle commande
+2. Vérifie la disponibilité des produits
+3. Change le statut à **PREPARATION**
+4. Notification envoyée au client
+
+**Statut : PREPARATION → LIVRAISON**
+1. Les produits sont préparés
+2. Le statut passe à **LIVRAISON**
+3. Un créneau de livraison est planifié (date et heure)
+4. Un livreur est assigné (optionnel)
+5. Notification envoyée au client
+
+**Statut : LIVRAISON → LIVREE**
+1. Le livreur effectue la livraison
+2. Le statut passe à **LIVREE**
+3. La facture est générée automatiquement
+4. Notification envoyée au client
+
+**Paiement** :
+- Après livraison, le paiement peut être enregistré
+- Statuts de paiement : EN_ATTENTE, PARTIEL, PAYE
+- Méthodes : CASH, CARD, TRANSFER, CHEQUE
+
+---
+
+### 👨‍💼 Utilisation pour l'Administrateur
+
+#### Dashboard Admin
+- **Statistiques globales** :
+  - Chiffre d'affaires du jour/mois
+  - Nombre de commandes
+  - Commandes en attente
+  - Graphiques de performance
+
+- **Gestion des Produits** :
+  1. Accéder à "Produits" dans le menu
+  2. Créer un nouveau produit :
+     - Nom, catégorie, sous-catégorie
+     - Prix HT
+     - Taux de TVA (5,5% ou 20%)
+     - Unité de mesure
+     - Stock initial
+     - Photo (upload)
+  3. Modifier un produit existant
+  4. Désactiver/Activer un produit
+
+- **Gestion des Commandes** :
+  1. Visualiser toutes les commandes
+  2. Filtrer par :
+     - Client
+     - Date (jour, semaine, mois)
+     - Statut
+  3. Modifier le statut d'une commande
+  4. Voir les détails (produits, quantités, totaux)
+  5. Télécharger le bon de commande (PDF)
+
+- **Gestion des Clients** :
+  1. Voir la liste des magasins clients
+  2. Voir les détails d'un client
+  3. Historique des commandes par client
+  4. Statistiques par client
+
+- **Stock** :
+  - Visualiser les niveaux de stock
+  - Alertes de stock faible
+  - Ajustements de stock
+
+- **Facturation** :
+  - Génération automatique après livraison
+  - Visualisation des factures
+  - Téléchargement PDF
+  - Export comptable
+
+- **Rapports** :
+  - Rapports de vente
+  - Rapports par période
+  - Export Excel/PDF
+
+---
+
+### 🏪 Utilisation pour le Client (Magasin)
+
+#### Dashboard Client
+- Vue d'ensemble de ses commandes
+- Statistiques personnelles
+- Commandes récentes
+
+#### Passer une Commande
+1. Accéder au catalogue
+2. Parcourir les produits disponibles
+3. Ajouter les produits au panier avec les quantités
+4. Vérifier le panier (totaux HT, TVA, TTC)
+5. Valider la commande
+
+#### Suivi des Commandes
+1. Accéder à "Mes Commandes"
+2. Voir toutes ses commandes avec leur statut :
+   - **NEW** : Nouvelle commande (en attente)
+   - **PREPARATION** : En cours de préparation
+   - **LIVRAISON** : En cours de livraison
+   - **LIVREE** : Commande livrée
+   - **ANNULEE** : Commande annulée
+3. Voir les détails de chaque commande
+4. Recevoir des notifications lors des changements de statut
+
+#### Commandes Récurrentes
+1. Créer une commande récurrente
+2. Définir la fréquence (hebdomadaire, mensuelle)
+3. Définir le jour de la semaine ou du mois
+4. Sélectionner les produits et quantités
+5. La commande sera créée automatiquement selon la programmation
+
+#### Finances
+- Visualiser sa situation financière
+- Consulter les factures
+- Télécharger les factures PDF
+- Voir l'historique des paiements
+- Solde dû
+
+#### Messages
+- Communication avec l'admin
+- Recevoir des messages concernant les commandes
+
+---
+
+### 🔄 Workflow Détaillé des Statuts de Commande
+
+```
+┌─────────┐
+│   NEW   │  ← Commande créée par le client
+└────┬────┘
+     │
+     ▼
+┌─────────────┐
+│ PREPARATION │  ← Admin/Préparateur commence la préparation
+└────┬────────┘
+     │
+     ▼
+┌───────────┐
+│ LIVRAISON │  ← Commande préparée, en cours de livraison
+└────┬──────┘
+     │
+     ▼
+┌─────────┐
+│ LIVREE  │  ← Commande livrée, facture générée
+└─────────┘
+
+     OU
+
+┌─────────┐
+│ANNULEE  │  ← Commande annulée (peut être annulée à tout moment)
+└─────────┘
+```
+
+---
+
+### 💼 Fonctionnalités Avancées
+
+#### Devis (Quotes)
+1. Le client peut demander un devis
+2. L'admin crée un devis avec produits et prix
+3. Le devis est envoyé au client
+4. Le client peut accepter → Converti en commande
+5. Statuts : DRAFT, SENT, ACCEPTED, REJECTED, CONVERTED
+
+#### Promotions
+1. L'admin crée une promotion (réduction, dates)
+2. Les produits en promotion sont marqués
+3. Réduction appliquée automatiquement
+
+#### Notifications
+- Notifications en temps réel pour :
+  - Changement de statut de commande
+  - Nouveaux messages
+  - Alertes de stock
+  - Promotions
+
+#### Audit Trail
+- Toutes les actions importantes sont enregistrées
+- Consultation dans les logs d'audit (admin)
+- Historique complet des modifications
+
+---
+
 ## 📊 Modèle de Données
 
 ### User
 - Informations d'authentification
-- Rôle (ADMIN ou CLIENT)
+- Rôle (ADMIN, CLIENT, PREPARATEUR, LIVREUR, etc.)
 
 ### Shop
 - Informations du magasin client
@@ -238,15 +543,88 @@ Utiliser le compte demo `admin@demo.com` / `admin123` ou créer un utilisateur a
 - Prix HT, taux TVA, unité
 - Photo optionnelle
 - Statut actif/inactif
+- Stock disponible
 
 ### Order
 - Commande d'un magasin
 - Statut (NEW, PREPARATION, LIVRAISON, LIVREE, ANNULEE)
+- Statut de paiement (EN_ATTENTE, PARTIEL, PAYE)
 - Totaux HT, TVA, TTC calculés automatiquement
 
 ### OrderItem
 - Item d'une commande
 - Quantité, prix, totaux
+
+## 📱 Utilisation Mobile et Responsive
+
+L'application est entièrement responsive et fonctionne sur :
+- 📱 **Smartphones** : Interface optimisée tactile
+- 📱 **Tablettes** : Vue adaptée format tablette
+- 💻 **Ordinateurs** : Interface complète desktop
+
+### Navigation Mobile
+- Menu hamburger pour accéder aux sections
+- Interface tactile optimisée
+- Gestes de navigation intuitifs
+
+---
+
+## 🔧 Fonctionnalités Techniques
+
+### Calculs Automatiques
+- **Totaux HT** : Calculé automatiquement (quantité × prix HT)
+- **TVA** : Calculée selon le taux du produit (5,5% ou 20%)
+- **Totaux TTC** : HT + TVA
+
+### Validation des Données
+- Validation côté client (React)
+- Validation côté serveur (Express-validator)
+- Messages d'erreur clairs
+
+### Sécurité
+- Authentification JWT avec refresh token
+- Mots de passe hashés (bcrypt)
+- Protection CSRF
+- Rate limiting sur les routes sensibles
+- Sanitization des entrées utilisateur
+
+---
+
+## 📋 Exemples de Cas d'Usage
+
+### Cas 1 : Client passe sa première commande
+1. Client s'inscrit avec ses informations
+2. Reçoit confirmation par email
+3. Se connecte à son compte
+4. Parcourt le catalogue
+5. Ajoute 5kg de tomates, 3kg de pommes au panier
+6. Valide la commande (total calculé : 25€ HT, 1,38€ TVA, 26,38€ TTC)
+7. Reçoit une notification : "Commande #123 créée"
+8. Suit l'évolution sur "Mes Commandes"
+
+### Cas 2 : Admin traite une commande
+1. Admin voit la notification : "Nouvelle commande #123"
+2. Ouvre la commande, vérifie les produits
+3. Change le statut à "PREPARATION"
+4. Client reçoit notification : "Votre commande est en préparation"
+5. Préparateur prépare les produits
+6. Admin change le statut à "LIVRAISON"
+7. Planifie la livraison pour demain 10h-12h
+8. Assigne un livreur
+9. Client reçoit notification avec créneau de livraison
+10. Livreur livre la commande
+11. Admin change le statut à "LIVREE"
+12. Facture générée automatiquement
+13. Client peut télécharger la facture
+
+### Cas 3 : Client configure une commande récurrente
+1. Client crée une commande récurrente hebdomadaire
+2. Configure : Chaque lundi à 9h
+3. Sélectionne les produits : 10kg tomates, 5kg pommes
+4. La commande est créée automatiquement chaque lundi
+5. Le client reçoit une notification chaque semaine
+
+---
 
 ## 🔒 Sécurité
 
@@ -349,6 +727,68 @@ npm run build
 - `JWT_SECRET` fort et sécurisé
 - `FRONTEND_URL` avec le domaine de production
 - Configurer CORS pour le domaine de production
+
+## 📚 Récapitulatif des Fonctionnalités
+
+### ✅ Fonctionnalités Principales
+
+| Fonctionnalité | Client | Admin | Autres Rôles |
+|----------------|--------|-------|--------------|
+| Passer commande | ✅ | - | - |
+| Voir catalogue | ✅ | ✅ | ✅ (selon rôle) |
+| Gérer produits | - | ✅ | - |
+| Gérer commandes | Voir ses commandes | Gérer toutes | Selon rôle |
+| Gérer clients | - | ✅ | Commercial |
+| Gérer stock | - | ✅ | Stock Manager |
+| Facturation | Voir factures | Générer factures | Finance |
+| Rapports | Ses stats | Tous rapports | Rapports spécifiques |
+| Messages | ✅ | ✅ | ✅ |
+| Notifications | ✅ | ✅ | ✅ |
+
+### 📊 Statuts de Commande
+
+| Statut | Description | Qui peut changer |
+|--------|-------------|------------------|
+| **NEW** | Commande créée, en attente | Admin, Préparateur |
+| **PREPARATION** | En cours de préparation | Admin, Préparateur |
+| **LIVRAISON** | En cours de livraison | Admin, Livreur |
+| **LIVREE** | Commande livrée | Admin, Livreur |
+| **ANNULEE** | Commande annulée | Admin, Client (avant préparation) |
+
+### 💰 Statuts de Paiement
+
+| Statut | Description |
+|--------|-------------|
+| **EN_ATTENTE** | Paiement non effectué |
+| **PARTIEL** | Paiement partiel |
+| **PAYE** | Commande payée intégralement |
+
+---
+
+## 🎓 Guide de Formation Utilisateur
+
+### Pour les Clients (10 minutes)
+1. S'inscrire et créer un compte
+2. Se connecter
+3. Parcourir le catalogue
+4. Ajouter des produits au panier
+5. Passer une commande
+6. Suivre le statut de la commande
+7. Consulter les factures
+
+### Pour les Administrateurs (30 minutes)
+1. Se connecter
+2. Créer des produits (nom, prix, catégorie, photo)
+3. Gérer le stock
+4. Voir les nouvelles commandes
+5. Changer le statut des commandes
+6. Planifier les livraisons
+7. Générer des factures
+8. Consulter les statistiques
+9. Gérer les clients
+10. Créer des promotions
+
+---
 
 ## 📄 Licence
 
