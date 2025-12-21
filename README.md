@@ -790,6 +790,130 @@ npm run build
 
 ---
 
+## 🎯 Fonctionnalités Manquantes par Rôle
+
+### 📊 Vue d'Ensemble
+
+| Rôle | Pages Existantes | Pages Manquantes | Priorité |
+|------|------------------|------------------|----------|
+| **CLIENT** | 7 | ~10 | 🔴 HAUTE |
+| **ADMIN** | 15 | ~12 | 🟡 MOYENNE |
+| **PREPARATEUR** | 2 | ~6 | 🔴 HAUTE |
+| **LIVREUR** | 2 | ~8 | 🔴 HAUTE |
+| **COMMERCIAL** | 2 | ~8 | 🔴 HAUTE |
+| **STOCK_MANAGER** | 2 | ~10 | 🔴 HAUTE |
+| **FINANCE** | 2 | ~9 | 🔴 HAUTE |
+| **MANAGER** | 2 | ~7 | 🟡 MOYENNE |
+
+### 👤 CLIENT - Fonctionnalités Manquantes
+
+1. **Catalogue dédié** (`/client/catalog`) - Vue catalogue avec filtres avancés, recherche, tri
+2. **Panier avancé** (`/client/cart`) - Gestion dédiée du panier, sauvegarde
+3. **Devis** (`/client/quotes`) - Demander et gérer les devis
+4. **Suivi livraison** (`/client/deliveries`) - Suivi GPS, statut temps réel
+5. **Adresses** (`/client/addresses`) - Gestion de plusieurs adresses
+6. **Statistiques** (`/client/statistics`) - Graphiques de consommation
+7. **Promotions** (`/client/promotions`) - Voir toutes les promotions
+8. **Avis produits** - Noter et commenter les produits
+9. **Support** (`/client/support`) - FAQ, centre d'aide
+10. **Export données** - Export commandes/factures
+
+### 📦 PREPARATEUR - Fonctionnalités Manquantes
+
+1. **Liste commandes** (`/preparateur/orders`) - Commandes à préparer avec filtres
+2. **Fiche préparation** (`/preparateur/preparation/:id`) - Détails avec validation
+3. **Gestion stock** - Déduction automatique lors de la préparation
+4. **Statistiques** (`/preparateur/statistics`) - Performance, temps moyen
+5. **Historique** (`/preparateur/history`) - Historique des préparations
+6. **Notifications** - Alertes nouvelles commandes en temps réel
+
+### 🚚 LIVREUR - Fonctionnalités Manquantes
+
+1. **Liste livraisons** (`/livreur/deliveries`) - Livraisons assignées avec détails
+2. **Optimisation itinéraire** (`/livreur/route`) - Calcul trajet optimal, carte
+3. **Suivi GPS** (`/livreur/tracking`) - Géolocalisation temps réel
+4. **Fiche livraison** (`/livreur/delivery/:id`) - Signature électronique, photo
+5. **Paiements** - Enregistrer paiements à la livraison
+6. **Statistiques** (`/livreur/statistics`) - Performance, kilomètres
+7. **Historique** (`/livreur/history`) - Historique complet
+8. **Incidents** (`/livreur/incidents`) - Signaler incidents de livraison
+
+### 💼 COMMERCIAL - Fonctionnalités Manquantes
+
+1. **Gestion clients** (`/commercial/clients`) - Liste, détails, historique
+2. **Gestion devis** (`/commercial/quotes`) - Créer, envoyer, suivre devis
+3. **Prospects** (`/commercial/prospects`) - Gestion des prospects
+4. **Visites** (`/commercial/visits`) - Planifier et suivre les visites
+5. **Objectifs** (`/commercial/objectives`) - Objectifs de vente, commissions
+6. **Statistiques** (`/commercial/statistics`) - CA par client, évolution
+7. **Promotions** (`/commercial/promotions`) - Promotions ciblées
+8. **Rapports** (`/commercial/reports`) - Rapports commerciaux
+
+### 📊 STOCK_MANAGER - Fonctionnalités Manquantes
+
+1. **Gestion stock** (`/stock/products`) - Liste complète avec filtres
+2. **Alertes** (`/stock/alerts`) - Ruptures, stock faible
+3. **Mouvements** (`/stock/movements`) - Historique entrées/sorties
+4. **Réceptions** (`/stock/receptions`) - Enregistrer réceptions
+5. **Inventaire** (`/stock/inventory`) - Planifier et effectuer inventaires
+6. **Fournisseurs** (`/stock/suppliers`) - Gestion commandes fournisseurs
+7. **Prévisions** (`/stock/forecast`) - Prévisions de consommation
+8. **Rapports** (`/stock/reports`) - Rapports de stock
+9. **Emplacements** (`/stock/locations`) - Gestion des emplacements
+10. **Lots** - Gestion des lots et dates de péremption
+
+### 💰 FINANCE - Fonctionnalités Manquantes
+
+1. **Factures** (`/finance/invoices`) - Gestion complète, relances
+2. **Paiements** (`/finance/payments`) - Rapprochements, remboursements
+3. **Comptabilité** (`/finance/accounting`) - Écritures, grand livre
+4. **Trésorerie** (`/finance/cashflow`) - Prévisions, flux de trésorerie
+5. **Relances** (`/finance/reminders`) - Factures impayées, relances
+6. **Rapports** (`/finance/reports`) - Bilan, compte de résultat, TVA
+7. **Règlements** (`/finance/settlements`) - Avoirs, notes de crédit
+8. **Intégration** (`/finance/integration`) - Export comptable, FEC
+9. **Taxes** (`/finance/taxes`) - Déclarations TVA
+
+### 👔 MANAGER - Fonctionnalités Manquantes
+
+1. **Vue d'ensemble** (`/manager/overview`) - KPIs globaux consolidés
+2. **Équipes** (`/manager/teams`) - Gestion des équipes, performance
+3. **Rapports** (`/manager/reports`) - Rapports multi-départements
+4. **Objectifs** (`/manager/objectives`) - Définir et suivre objectifs
+5. **Analytics** (`/manager/analytics`) - Analyses prédictives, tendances
+6. **Alertes** (`/manager/alerts`) - Alertes critiques système
+7. **Permissions** (`/manager/permissions`) - Gestion des permissions
+
+### 👨‍💼 ADMIN - Fonctionnalités Manquantes
+
+1. **Devis** (`/admin/quotes`) - Gestion complète des devis
+2. **Livraisons** (`/admin/deliveries`) - Liste détaillée, tournées
+3. **Retours** (`/admin/returns`) - Gestion retours et réclamations
+4. **Fournisseurs** (`/admin/suppliers`) - Gestion des fournisseurs
+5. **Tarifs** (`/admin/pricing`) - Tarifs par client, remises
+6. **Contrats** (`/admin/contracts`) - Gestion des contrats clients
+7. **Alertes** (`/admin/alerts`) - Configuration alertes système
+8. **Import/Export** (`/admin/import-export`) - Import CSV/Excel
+9. **Templates** (`/admin/templates`) - Templates emails, factures
+10. **Backup** (`/admin/backup`) - Sauvegardes et restauration
+11. **Intégrations** (`/admin/integrations`) - API externes, webhooks
+12. **Multi-entrepôts** - Gestion de plusieurs entrepôts
+
+### 🔄 Fonctionnalités Transversales Manquantes
+
+1. **Recherche globale** - Barre de recherche universelle
+2. **Export/Impression** - Export Excel/PDF pour toutes les listes
+3. **Notifications avancées** - Centre de notifications amélioré
+4. **Calendrier global** (`/calendar`) - Vue calendrier des événements
+5. **Chat amélioré** - Chat temps réel avec groupes
+6. **Gestion fichiers** (`/files`) - Upload et partage de documents
+7. **Dashboard personnalisable** - Widgets configurables
+8. **Mode sombre** - Thème sombre/clair
+9. **Multi-langue** - Support français/anglais
+10. **PWA complète** - Application mobile installable
+
+---
+
 ## 📄 Licence
 
 Projet privé - Tous droits réservés
