@@ -54,22 +54,26 @@ const Layout = ({ children }) => {
   ];
 
   const clientMenuItems = [
-    { path: '/client', label: 'Catalogue', icon: '🛒' },
+    { path: '/client', label: 'Dashboard', icon: '📊' },
+    { path: '/client/cart', label: 'Panier', icon: '🛍️' },
     { path: '/client/orders', label: 'Mes Commandes', icon: '📋' },
+    { path: '/client/quotes', label: 'Mes Devis', icon: '📋' },
     { path: '/client/finance', label: 'Ma Situation', icon: '💰' },
     { path: '/client/invoices', label: 'Mes Factures', icon: '📄' },
     { path: '/client/recurring-orders', label: 'Commandes Récurrentes', icon: '🔄' },
-    { path: '/client/notifications', label: 'Notifications', icon: '🔔' },
-    { path: '/client/profile', label: 'Mon Profil', icon: '👤' },
+    // Notifications et Profil sont accessibles via le header (NotificationBell et nom utilisateur)
   ];
 
   const preparateurMenuItems = [
     { path: '/preparateur', label: 'Dashboard', icon: '📦' },
+    { path: '/preparateur/orders', label: 'Commandes à Préparer', icon: '📋' },
+    { path: '/preparateur/statistics', label: 'Statistiques', icon: '📊' },
     { path: '/preparateur/profile', label: 'Profil', icon: '👤' },
   ];
 
   const livreurMenuItems = [
     { path: '/livreur', label: 'Dashboard', icon: '🚚' },
+    { path: '/livreur/deliveries', label: 'Mes Livraisons', icon: '📦' },
     { path: '/livreur/profile', label: 'Profil', icon: '👤' },
   ];
 
@@ -80,11 +84,15 @@ const Layout = ({ children }) => {
 
   const stockMenuItems = [
     { path: '/stock', label: 'Dashboard', icon: '📦' },
+    { path: '/stock/products', label: 'Gestion Stock', icon: '📊' },
+    { path: '/stock/alerts', label: 'Alertes', icon: '🚨' },
     { path: '/stock/profile', label: 'Profil', icon: '👤' },
   ];
 
   const financeMenuItems = [
     { path: '/finance', label: 'Dashboard', icon: '💰' },
+    { path: '/finance/invoices', label: 'Factures', icon: '📄' },
+    { path: '/finance/payments', label: 'Paiements', icon: '💳' },
     { path: '/finance/profile', label: 'Profil', icon: '👤' },
   ];
 
@@ -186,10 +194,14 @@ const Layout = ({ children }) => {
                 <span className="profile-icon">👤</span>
                 <span className="profile-name">{user?.name}</span>
               </Link>
-              <button onClick={handleLogout} className="btn-logout">
-                Déconnexion
-              </button>
             </div>
+            <button 
+              onClick={handleLogout} 
+              className="btn-logout-direct"
+              title="Déconnexion"
+            >
+              🚪 Déconnexion
+            </button>
             <button 
               className="mobile-menu-toggle"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -216,6 +228,15 @@ const Layout = ({ children }) => {
               </Link>
             );
           })}
+          {/* Déconnexion uniquement dans le menu mobile (le bouton du header est pour desktop) */}
+          <button 
+            onClick={handleLogout} 
+            className="nav-link btn-logout-mobile"
+            title="Déconnexion"
+          >
+            <span className="nav-icon">🚪</span>
+            <span className="nav-label">Déconnexion</span>
+          </button>
         </div>
       </nav>
       <main className="main-content">

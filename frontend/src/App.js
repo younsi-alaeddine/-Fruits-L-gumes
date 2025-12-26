@@ -10,10 +10,21 @@ import ClientDashboard from './pages/client/Dashboard';
 import ClientOrders from './pages/client/Orders';
 import AdminDashboard from './pages/admin/Dashboard';
 import PreparateurDashboard from './pages/preparateur/Dashboard';
+import PreparateurOrders from './pages/preparateur/Orders';
+import PreparateurPreparation from './pages/preparateur/Preparation';
+import PreparateurStatistics from './pages/preparateur/Statistics';
 import LivreurDashboard from './pages/livreur/Dashboard';
+import LivreurDeliveries from './pages/livreur/Deliveries';
+import LivreurDelivery from './pages/livreur/Delivery';
 import CommercialDashboard from './pages/commercial/Dashboard';
+import CommercialClients from './pages/commercial/Clients';
+import CommercialQuotes from './pages/commercial/Quotes';
 import StockDashboard from './pages/stock/Dashboard';
+import StockProducts from './pages/stock/Products';
+import StockAlerts from './pages/stock/Alerts';
 import FinanceDashboard from './pages/finance/Dashboard';
+import FinanceInvoices from './pages/finance/Invoices';
+import FinancePayments from './pages/finance/Payments';
 import ManagerDashboard from './pages/manager/Dashboard';
 import AdminOrders from './pages/admin/Orders';
 import AdminProducts from './pages/admin/Products';
@@ -34,6 +45,8 @@ import ClientNotifications from './pages/client/Notifications';
 import ClientInvoices from './pages/client/Invoices';
 import ClientFinance from './pages/client/Finance';
 import RecurringOrders from './pages/client/RecurringOrders';
+import ClientCart from './pages/client/Cart';
+import ClientQuotes from './pages/client/Quotes';
 import Messages from './pages/Messages';
 import Profile from './pages/Profile';
 import NotFound from './pages/NotFound';
@@ -156,6 +169,31 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            {/* Redirection: /client/catalog -> /client (Dashboard fait le même travail) */}
+            <Route
+              path="/client/catalog"
+              element={<Navigate to="/client" replace />}
+            />
+            <Route
+              path="/client/cart"
+              element={
+                <ProtectedRoute allowedRoles={['CLIENT']}>
+                  <Layout>
+                    <ClientCart />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/client/quotes"
+              element={
+                <ProtectedRoute allowedRoles={['CLIENT']}>
+                  <Layout>
+                    <ClientQuotes />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/preparateur/profile"
               element={
@@ -228,6 +266,26 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/preparateur/orders"
+              element={
+                <ProtectedRoute allowedRoles={['PREPARATEUR', 'MANAGER', 'ADMIN']}>
+                  <Layout>
+                    <PreparateurOrders />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/preparateur/preparation/:orderId"
+              element={
+                <ProtectedRoute allowedRoles={['PREPARATEUR', 'MANAGER', 'ADMIN']}>
+                  <Layout>
+                    <PreparateurPreparation />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
             {/* Routes Livreur */}
             <Route
@@ -240,6 +298,26 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/livreur/deliveries"
+              element={
+                <ProtectedRoute allowedRoles={['LIVREUR', 'MANAGER', 'ADMIN']}>
+                  <Layout>
+                    <LivreurDeliveries />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/livreur/delivery/:deliveryId"
+              element={
+                <ProtectedRoute allowedRoles={['LIVREUR', 'MANAGER', 'ADMIN']}>
+                  <Layout>
+                    <LivreurDelivery />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
             {/* Routes Commercial */}
             <Route
@@ -248,6 +326,26 @@ function App() {
                 <ProtectedRoute allowedRoles={['COMMERCIAL', 'MANAGER', 'ADMIN']}>
                   <Layout>
                     <CommercialDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/commercial/clients"
+              element={
+                <ProtectedRoute allowedRoles={['COMMERCIAL', 'MANAGER', 'ADMIN']}>
+                  <Layout>
+                    <CommercialClients />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/commercial/quotes"
+              element={
+                <ProtectedRoute allowedRoles={['COMMERCIAL', 'MANAGER', 'ADMIN']}>
+                  <Layout>
+                    <CommercialQuotes />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -272,6 +370,26 @@ function App() {
                 <ProtectedRoute allowedRoles={['FINANCE', 'MANAGER', 'ADMIN']}>
                   <Layout>
                     <FinanceDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/invoices"
+              element={
+                <ProtectedRoute allowedRoles={['FINANCE', 'MANAGER', 'ADMIN']}>
+                  <Layout>
+                    <FinanceInvoices />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/payments"
+              element={
+                <ProtectedRoute allowedRoles={['FINANCE', 'MANAGER', 'ADMIN']}>
+                  <Layout>
+                    <FinancePayments />
                   </Layout>
                 </ProtectedRoute>
               }

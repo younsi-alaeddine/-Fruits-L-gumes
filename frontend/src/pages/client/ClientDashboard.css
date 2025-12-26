@@ -3,6 +3,175 @@
   color: #333;
 }
 
+/* Bannière promotions */
+.promotions-banner {
+  background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
+  text-align: center;
+  color: white;
+  animation: slideInDown 0.5s ease-out;
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.promotions-header h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 2rem;
+  font-weight: 800;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.promotions-header p {
+  margin: 0;
+  font-size: 1.1rem;
+  opacity: 0.95;
+}
+
+/* Badge de promotion */
+.promotion-badge {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  box-shadow: 0 4px 12px rgba(255, 107, 53, 0.4);
+  animation: bounce-promotion 1s ease-in-out infinite;
+}
+
+@keyframes bounce-promotion {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.promotion-icon {
+  font-size: 1.2rem;
+  animation: rotate-fire 2s linear infinite;
+}
+
+@keyframes rotate-fire {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-10deg);
+  }
+  75% {
+    transform: rotate(10deg);
+  }
+}
+
+.promotion-text {
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Produit en promotion */
+.product-card.product-promotion {
+  border: 3px solid #ff6b35;
+  background: linear-gradient(135deg, #fff 0%, #fff5f0 100%);
+  box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
+  animation: pulse-promotion 2s ease-in-out infinite;
+  position: relative;
+}
+
+@keyframes pulse-promotion {
+  0%, 100% {
+    box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
+  }
+  50% {
+    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.5);
+  }
+}
+
+.product-card.product-promotion:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(255, 107, 53, 0.4);
+}
+
+.price-ttc.promotional {
+  color: #ff6b35;
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.price-ht.original {
+  font-size: 0.9rem;
+  color: #999;
+}
+
+.strikethrough {
+  text-decoration: line-through;
+}
+
+.promotion-name {
+  font-size: 0.85rem;
+  color: #ff6b35;
+  font-weight: 600;
+  font-style: italic;
+  margin-top: 0.25rem;
+}
+
+/* Bannière promotions */
+.promotions-banner {
+  background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
+  text-align: center;
+  color: white;
+  animation: slideInDown 0.5s ease-out;
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.promotions-header h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 2rem;
+  font-weight: 800;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.promotions-header p {
+  margin: 0;
+  font-size: 1.1rem;
+  opacity: 0.95;
+}
+
 .dashboard-header {
   display: flex;
   justify-content: space-between;
@@ -252,6 +421,29 @@
   color: #28a745;
   font-weight: 600;
   font-size: 1.1rem;
+}
+
+.price-ttc.promotional {
+  color: #ff6b35;
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+.price-ht.original {
+  font-size: 0.9rem;
+  color: #999;
+}
+
+.strikethrough {
+  text-decoration: line-through;
+}
+
+.promotion-name {
+  font-size: 0.85rem;
+  color: #ff6b35;
+  font-weight: 600;
+  font-style: italic;
+  margin-top: 0.25rem;
 }
 
 .tva {

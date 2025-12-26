@@ -8,6 +8,7 @@ import './ClientDashboard.css';
 const ClientDashboard = () => {
   const [searchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
+  const [promotions, setPromotions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -15,7 +16,7 @@ const ClientDashboard = () => {
   const [selectedSubCategory, setSelectedSubCategory] = useState('TOUS');
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [categoriesConfig, setCategoriesConfig] = useState(null);
-  const [sortBy, setSortBy] = useState('name-asc');
+  const [sortBy, setSortBy] = useState('promotions-first'); // Par défaut : promotions en premier
   const [currentPage, setCurrentPage] = useState(1);
   const [ordersStats, setOrdersStats] = useState(null);
   const [showCartModal, setShowCartModal] = useState(false);
@@ -25,6 +26,7 @@ const ClientDashboard = () => {
     fetchProducts();
     fetchOrdersStats();
     fetchCategoriesConfig();
+    fetchPromotions();
   }, []);
 
   const fetchCategoriesConfig = async () => {
@@ -36,6 +38,52 @@ const ClientDashboard = () => {
     } catch (error) {
       console.error('Erreur chargement catégories:', error);
     }
+  };
+
+  const fetchPromotions = async () => {
+    try {
+      const response = await api.get('/promotions?isActive=true');
+      if (response.data.success) {
+        setPromotions(response.data.promotions || []);
+      }
+    } catch (error) {
+      console.error('Erreur chargement promotions:', error);
+    }
+  };
+
+  // Vérifier si un produit est en promotion
+  const getProductPromotion = (product) => {
+    const now = new Date();
+    return promotions.find(promo => {
+      if (!promo.isActive) return false;
+      const validFrom = new Date(promo.validFrom);
+      const validTo = new Date(promo.validTo);
+      if (now < validFrom || now > validTo) return false;
+      
+      // Vérifier si la promotion s'applique à ce produit
+      if (promo.appliesTo === 'ALL_PRODUCTS') return true;
+      if (promo.appliesTo === 'SPECIFIC_PRODUCTS' && promo.productIds?.includes(product.id)) return true;
+      if (promo.appliesTo === 'CATEGORY' && promo.productIds?.includes(product.categoryId || product.category)) return true;
+      return false;
+    });
+  };
+
+  // Calculer le prix TTC avec promotion
+  const getPromotionalPrice = (product, promotion) => {
+    if (!promotion) return null;
+    
+    const priceTTC = product.priceHT * (1 + (product.tvaRate || 5.5) / 100);
+    
+    if (promotion.type === 'PERCENTAGE') {
+      const discount = priceTTC * (promotion.value / 100);
+      const maxDiscount = promotion.maxDiscount || Infinity;
+      const finalDiscount = Math.min(discount, maxDiscount);
+      return Math.max(0, priceTTC - finalDiscount);
+    } else if (promotion.type === 'FIXED_AMOUNT') {
+      return Math.max(0, priceTTC - promotion.value);
+    }
+    
+    return priceTTC;
   };
 
   useEffect(() => {
@@ -90,10 +138,23 @@ const ClientDashboard = () => {
   // Obtenir les catégories disponibles
   const categories = ['TOUS', ...Object.keys(productsByCategory)];
 
-  // Filtrer et trier les produits
+  // Filtrer et trier les produits avec promotions
   let filteredProducts = (selectedCategory === 'TOUS' 
     ? products 
-    : productsByCategory[selectedCategory] || []).filter(product => {
+    : productsByCategory[selectedCategory] || [])
+    .map(product => {
+      const promotion = getProductPromotion(product);
+      const promotionalPrice = promotion ? getPromotionalPrice(product, promotion) : null;
+      const originalPriceTTC = product.priceHT * (1 + (product.tvaRate || 5.5) / 100);
+      return {
+        ...product,
+        promotion,
+        promotionalPrice,
+        hasPromotion: !!promotion,
+        originalPriceTTC
+      };
+    })
+    .filter(product => {
       // Filtre par recherche
       if (searchTerm && !product.name.toLowerCase().includes(searchTerm.toLowerCase())) {
         return false;
@@ -107,17 +168,27 @@ const ClientDashboard = () => {
       return true;
     });
 
-  // Tri
+  // Tri avec promotions en premier
   filteredProducts = [...filteredProducts].sort((a, b) => {
+    // Toujours mettre les promos en premier (par défaut)
+    if (sortBy === 'promotions-first' || sortBy === 'default') {
+      if (a.hasPromotion && !b.hasPromotion) return -1;
+      if (!a.hasPromotion && b.hasPromotion) return 1;
+    }
+    
     switch (sortBy) {
+      case 'promotions-first':
+      case 'default':
+        // Si les deux ont des promotions ou non, trier par nom
+        return a.name.localeCompare(b.name);
       case 'name-asc':
         return a.name.localeCompare(b.name);
       case 'name-desc':
         return b.name.localeCompare(a.name);
       case 'price-asc':
-        return a.priceHT - b.priceHT;
+        return (a.promotionalPrice || a.priceHT) - (b.promotionalPrice || b.priceHT);
       case 'price-desc':
-        return b.priceHT - a.priceHT;
+        return (b.promotionalPrice || b.priceHT) - (a.promotionalPrice || a.priceHT);
       default:
         return 0;
     }
@@ -305,6 +376,7 @@ const ClientDashboard = () => {
             onChange={(e) => setSortBy(e.target.value)}
             className="sort-select"
           >
+            <option value="promotions-first">🔥 Promotions en premier</option>
             <option value="name-asc">Trier par nom (A-Z)</option>
             <option value="name-desc">Trier par nom (Z-A)</option>
             <option value="price-asc">Prix croissant</option>
@@ -325,6 +397,16 @@ const ClientDashboard = () => {
           </span>
         )}
       </div>
+
+      {/* Section Promotions en vedette */}
+      {filteredProducts.filter(p => p.hasPromotion).length > 0 && (
+        <div className="promotions-banner">
+          <div className="promotions-header">
+            <h2>🔥 PROMOTIONS EN VEDETTE</h2>
+            <p>Découvrez nos offres spéciales !</p>
+          </div>
+        </div>
+      )}
 
       {/* Liste des produits */}
       {paginatedProducts.length === 0 ? (
@@ -350,8 +432,27 @@ const ClientDashboard = () => {
               const isInCart = !!cart[product.id];
               const quantity = cart[product.id] || 0;
               const priceTTC = product.priceHT * (1 + product.tvaRate / 100);
+              const hasPromotion = product.hasPromotion;
+              const promotion = product.promotion;
+              const promotionalPrice = product.promotionalPrice;
+              const originalPriceTTC = product.originalPriceTTC;
+              const discountPercent = promotion && promotion.type === 'PERCENTAGE' 
+                ? promotion.value 
+                : promotionalPrice && originalPriceTTC
+                  ? Math.round(((originalPriceTTC - promotionalPrice) / originalPriceTTC) * 100)
+                  : 0;
+              const displayPrice = hasPromotion && promotionalPrice ? promotionalPrice : priceTTC;
+              
               return (
-                <div key={product.id} className={`product-card ${isInCart ? 'in-cart' : ''}`}>
+                <div key={product.id} className={`product-card ${isInCart ? 'in-cart' : ''} ${hasPromotion ? 'product-promotion' : ''}`}>
+                  {hasPromotion && (
+                    <div className="promotion-badge">
+                      <span className="promotion-icon">🔥</span>
+                      <span className="promotion-text">
+                        {discountPercent > 0 ? `-${discountPercent}%` : 'PROMO'}
+                      </span>
+                    </div>
+                  )}
                   {product.photoUrl && (
                     <div className="product-image">
                       <img
@@ -380,9 +481,21 @@ const ClientDashboard = () => {
                       </span>
                     </div>
                     <div className="product-prices">
+                      {hasPromotion && promotionalPrice ? (
+                        <>
+                          <span className="price-ttc promotional">{formatPrice(promotionalPrice)} TTC</span>
+                          <span className="price-ht original strikethrough">{formatPrice(originalPriceTTC)}</span>
+                          {promotion && (
+                            <span className="promotion-name">🎁 {promotion.name}</span>
+                          )}
+                        </>
+                      ) : (
+                        <>
                       <span className="price-ht">{formatPrice(product.priceHT)} HT</span>
                       <span className="price-ttc">{formatPrice(priceTTC)} TTC</span>
                       <span className="tva">TVA {product.tvaRate}%</span>
+                        </>
+                      )}
                     </div>
                     <div className="product-unit">Unité : {product.unit}</div>
 
