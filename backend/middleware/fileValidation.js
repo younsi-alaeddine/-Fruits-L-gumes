@@ -1,5 +1,5 @@
-const { fileTypeFromBuffer } = require('file-type');
 const logger = require('../utils/logger');
+const path = require('path');
 
 // Types MIME autorisés pour les images
 const ALLOWED_MIME_TYPES = [
@@ -36,7 +36,7 @@ const validateFile = async (req, res, next) => {
     }
 
     // Vérifier l'extension
-    const ext = require('path').extname(file.originalname).toLowerCase();
+    const ext = path.extname(file.originalname).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
       return res.status(400).json({
         success: false,
@@ -45,7 +45,23 @@ const validateFile = async (req, res, next) => {
     }
 
     // Vérifier le type MIME réel (pas seulement l'extension)
-    const fileType = await fileTypeFromBuffer(file.buffer);
+    // Utiliser dynamic import pour file-type (ES Module)
+    const { fileTypeFromFile } = await import('file-type');
+    
+    // Si multer utilise diskStorage, le fichier est sur le disque, pas en mémoire
+    // Utiliser fileTypeFromFile pour lire depuis le disque
+    let fileType;
+    if (file.path) {
+      // Fichier sur disque (multer.diskStorage)
+      fileType = await fileTypeFromFile(file.path);
+    } else if (file.buffer) {
+      // Fichier en mémoire (multer.memoryStorage)
+      const { fileTypeFromBuffer } = await import('file-type');
+      fileType = await fileTypeFromBuffer(file.buffer);
+    } else {
+      // Fallback : utiliser le mimetype déclaré
+      fileType = { mime: file.mimetype };
+    }
     
     if (!fileType || !ALLOWED_MIME_TYPES.includes(fileType.mime)) {
       logger.warn('Tentative d\'upload de fichier avec type MIME invalide', {

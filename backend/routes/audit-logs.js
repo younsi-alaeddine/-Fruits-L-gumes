@@ -180,15 +180,16 @@ router.get('/entity/:entity/:entityId', authenticate, requireAdmin, async (req, 
       logs: logsWithParsedChanges,
     });
   } catch (error) {
-    logger.error('Erreur récupération logs entité:', { 
+    // SECURITY: Use logger only, remove console.error and stack traces in production
+    logger.error('Erreur récupération logs entité', { 
       error: error.message,
-      stack: error.stack 
+      entity: req.params.entity,
+      entityId: req.params.entityId,
+      userId: req.user?.id 
     });
-    console.error('Erreur détaillée logs entité:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des logs',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      message: 'Erreur lors de la récupération des logs'
     });
   }
 });
@@ -339,6 +340,15 @@ router.get('/stats', authenticate, requireAdmin, async (req, res) => {
  */
 router.get('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID de log invalide' 
+      });
+    }
+
     const log = await prisma.auditLog.findUnique({
       where: { id: req.params.id },
       include: {

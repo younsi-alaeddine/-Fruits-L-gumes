@@ -5,6 +5,7 @@ const prisma = require('../config/database');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const PDFDocument = require('pdfkit');
 const logger = require('../utils/logger');
+const { appInfo } = require('../config/appInfo');
 
 /**
  * Générer un numéro de reçu unique
@@ -35,9 +36,10 @@ const generatePaymentReceiptPDF = async (payment, order, shop) => {
       doc.moveDown();
       
       // Informations entreprise
-      doc.fontSize(12).text('Distribution Fruits & Légumes', { align: 'left' });
-      doc.fontSize(10).text('123 Rue des Fruits', { align: 'left' });
-      doc.fontSize(10).text('75000 Paris, France', { align: 'left' });
+      // Phase 2: make document header configurable (deploy-safe)
+      doc.fontSize(12).text(appInfo.companyName, { align: 'left' });
+      doc.fontSize(10).text(appInfo.companyAddressLine1, { align: 'left' });
+      doc.fontSize(10).text(appInfo.companyAddressLine2, { align: 'left' });
       doc.moveDown();
 
       // Numéro de reçu et date
@@ -102,6 +104,16 @@ router.use(authenticate);
  */
 router.get('/:id/download-receipt', async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    // RISK: Invalid UUID format could cause database errors or expose information
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de paiement invalide'
+      });
+    }
+
     const payment = await prisma.payment.findUnique({
       where: { id: req.params.id },
       include: {
@@ -125,8 +137,9 @@ router.get('/:id/download-receipt', async (req, res) => {
     if (!req.user || req.user.role !== 'ADMIN') {
       // Pour les clients, vérifier que le paiement appartient à leur magasin
       if (req.user && req.user.role === 'CLIENT') {
-        // Vérifier que l'utilisateur a un magasin associé
-        if (!req.user.shop) {
+        const accessibleShopIds = (req.context?.accessibleShops || []).map(s => s.id);
+        // Vérifier que l'utilisateur a au moins un magasin associé
+        if (accessibleShopIds.length === 0) {
           logger.warn('Client sans magasin tente de télécharger un reçu', {
             userId: req.user.id,
             paymentId: req.params.id,
@@ -138,10 +151,10 @@ router.get('/:id/download-receipt', async (req, res) => {
         }
         
         // Vérifier que le paiement appartient au magasin du client
-        if (payment.order.shopId !== req.user.shop.id) {
+        if (!accessibleShopIds.includes(payment.order.shopId)) {
           logger.warn('Client tente de télécharger un reçu d\'un autre magasin', {
             userId: req.user.id,
-            clientShopId: req.user.shop.id,
+            clientShopIds: accessibleShopIds,
             paymentShopId: payment.order.shopId,
             paymentId: req.params.id,
           });
@@ -269,8 +282,16 @@ router.get('/', requireAdmin, async (req, res) => {
 
     res.json({ payments });
   } catch (error) {
-    console.error('Erreur récupération paiements:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    // RISK: console.error may expose stack traces and sensitive data in production logs
+    logger.error('Erreur récupération paiements', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -403,8 +424,16 @@ router.post(
         payment
       });
     } catch (error) {
-      console.error('Erreur création paiement:', error);
-      res.status(500).json({ message: 'Erreur serveur' });
+      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+      logger.error('Erreur création paiement', { 
+        error: error.message,
+        userId: req.user?.id,
+        orderId: req.body?.orderId 
+      });
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur serveur' 
+      });
     }
   }
 );
@@ -425,9 +454,21 @@ router.put(
   ],
   async (req, res) => {
     try {
+      // SECURITY: Validate UUID format to prevent injection attacks
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(req.params.id)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'ID de paiement invalide' 
+        });
+      }
+
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+        return res.status(400).json({ 
+          success: false,
+          errors: errors.array() 
+        });
       }
 
       const { amount, paymentMethod, paymentDate, status, notes } = req.body;
@@ -444,7 +485,10 @@ router.put(
       });
 
       if (!payment) {
-        return res.status(404).json({ message: 'Paiement non trouvé' });
+        return res.status(404).json({ 
+          success: false,
+          message: 'Paiement non trouvé' 
+        });
       }
 
       const updateData = {};
@@ -493,12 +537,21 @@ router.put(
       });
 
       res.json({
+        success: true,
         message: 'Paiement modifié avec succès',
         payment: updatedPayment
       });
     } catch (error) {
-      console.error('Erreur modification paiement:', error);
-      res.status(500).json({ message: 'Erreur serveur' });
+      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+      logger.error('Erreur modification paiement', { 
+        error: error.message,
+        userId: req.user?.id,
+        paymentId: req.params.id 
+      });
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur serveur' 
+      });
     }
   }
 );
@@ -548,10 +601,21 @@ router.delete('/:id', async (req, res) => {
       data: { paymentStatus: newPaymentStatus }
     });
 
-    res.json({ message: 'Paiement supprimé avec succès' });
+    res.json({ 
+      success: true,
+      message: 'Paiement supprimé avec succès' 
+    });
   } catch (error) {
-    console.error('Erreur suppression paiement:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur suppression paiement', { 
+      error: error.message,
+      userId: req.user?.id,
+      paymentId: req.params.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -561,15 +625,391 @@ router.delete('/:id', async (req, res) => {
  */
 router.get('/order/:orderId', requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.orderId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID de commande invalide' 
+      });
+    }
+
     const payments = await prisma.payment.findMany({
       where: { orderId: req.params.orderId },
       orderBy: { createdAt: 'desc' }
     });
 
-    res.json({ payments });
+    res.json({ 
+      success: true,
+      payments 
+    });
   } catch (error) {
-    console.error('Erreur récupération paiements commande:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération paiements commande', { 
+      error: error.message,
+      userId: req.user?.id,
+      orderId: req.params.orderId 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
+  }
+});
+
+/**
+ * GET /api/payments/stats
+ * Statistiques des paiements
+ */
+router.get('/stats', requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    const where = {};
+    if (startDate || endDate) {
+      where.paymentDate = {};
+      if (startDate) where.paymentDate.gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        where.paymentDate.lte = end;
+      }
+    }
+
+    const payments = await prisma.payment.findMany({ where });
+    
+    const stats = {
+      total: payments.length,
+      totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
+      paid: payments.filter(p => p.status === 'PAYE').length,
+      pending: payments.filter(p => p.status === 'EN_ATTENTE').length,
+      unpaid: payments.filter(p => p.status === 'IMPAYE').length,
+      byMethod: {},
+      byStatus: {}
+    };
+
+    payments.forEach(p => {
+      stats.byMethod[p.paymentMethod] = (stats.byMethod[p.paymentMethod] || 0) + p.amount;
+      stats.byStatus[p.status] = (stats.byStatus[p.status] || 0) + 1;
+    });
+
+    res.json({ success: true, stats });
+  } catch (error) {
+    logger.error('Erreur stats paiements', { error: error.message });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+/**
+ * GET /api/payments/schedule
+ * Échéancier des paiements (paiements à venir)
+ */
+router.get('/schedule', requireAdmin, async (req, res) => {
+  try {
+    const { days = 30 } = req.query;
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + parseInt(days));
+
+    // Paiements en attente avec date prévue
+    const scheduledPayments = await prisma.payment.findMany({
+      where: {
+        status: 'EN_ATTENTE',
+        paymentDate: {
+          lte: futureDate
+        }
+      },
+      include: {
+        order: {
+          include: {
+            shop: {
+              select: {
+                id: true,
+                name: true,
+                city: true
+              }
+            }
+          }
+        },
+        invoice: {
+          select: {
+            id: true,
+            invoiceNumber: true
+          }
+        }
+      },
+      orderBy: { paymentDate: 'asc' }
+    });
+
+    // Commandes avec paiements impayés
+    const unpaidOrders = await prisma.order.findMany({
+      where: {
+        paymentStatus: { in: ['EN_ATTENTE', 'IMPAYE'] },
+        deliveryDate: {
+          lte: futureDate
+        }
+      },
+      include: {
+        shop: {
+          select: {
+            id: true,
+            name: true,
+            city: true
+          }
+        },
+        payments: {
+          where: { status: 'PAYE' }
+        }
+      },
+      orderBy: { deliveryDate: 'asc' }
+    });
+
+    const schedule = unpaidOrders.map(order => {
+      const totalPaid = order.payments.reduce((sum, p) => sum + p.amount, 0);
+      const remaining = order.totalTTC - totalPaid;
+      
+      return {
+        type: 'ORDER',
+        id: order.id,
+        reference: order.orderNumber,
+        client: order.shop.name,
+        amount: remaining,
+        dueDate: order.deliveryDate,
+        daysOverdue: order.deliveryDate ? Math.floor((new Date() - new Date(order.deliveryDate)) / (1000 * 60 * 60 * 24)) : 0,
+        status: order.paymentStatus
+      };
+    });
+
+    scheduledPayments.forEach(payment => {
+      schedule.push({
+        type: 'PAYMENT',
+        id: payment.id,
+        reference: payment.receiptNumber || payment.id.substring(0, 8),
+        client: payment.order?.shop?.name || payment.invoice?.invoiceNumber || 'N/A',
+        amount: payment.amount,
+        dueDate: payment.paymentDate,
+        daysOverdue: payment.paymentDate ? Math.floor((new Date() - new Date(payment.paymentDate)) / (1000 * 60 * 60 * 24)) : 0,
+        status: payment.status
+      });
+    });
+
+    schedule.sort((a, b) => {
+      const dateA = a.dueDate ? new Date(a.dueDate) : new Date(0);
+      const dateB = b.dueDate ? new Date(b.dueDate) : new Date(0);
+      return dateA - dateB;
+    });
+
+    res.json({ success: true, schedule });
+  } catch (error) {
+    logger.error('Erreur échéancier paiements', { error: error.message });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+/**
+ * GET /api/payments/overdue
+ * Paiements en retard (recouvrement)
+ */
+router.get('/overdue', requireAdmin, async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Commandes impayées avec date de livraison passée
+    const overdueOrders = await prisma.order.findMany({
+      where: {
+        paymentStatus: { in: ['EN_ATTENTE', 'IMPAYE'] },
+        deliveryDate: {
+          lt: today
+        }
+      },
+      include: {
+        shop: {
+          select: {
+            id: true,
+            name: true,
+            city: true,
+            phone: true,
+            email: true
+          }
+        },
+        payments: {
+          where: { status: 'PAYE' }
+        },
+        invoice: {
+          select: {
+            id: true,
+            invoiceNumber: true
+          }
+        }
+      },
+      orderBy: { deliveryDate: 'asc' }
+    });
+
+    const overdue = overdueOrders.map(order => {
+      const totalPaid = order.payments.reduce((sum, p) => sum + p.amount, 0);
+      const remaining = order.totalTTC - totalPaid;
+      const daysOverdue = order.deliveryDate ? Math.floor((today - new Date(order.deliveryDate)) / (1000 * 60 * 60 * 24)) : 0;
+
+      return {
+        id: order.id,
+        type: 'ORDER',
+        reference: order.orderNumber || order.id.substring(0, 8),
+        invoiceNumber: order.invoice?.invoiceNumber,
+        client: {
+          id: order.shop.id,
+          name: order.shop.name,
+          city: order.shop.city,
+          phone: order.shop.phone,
+          email: order.shop.email
+        },
+        amount: order.totalTTC,
+        paid: totalPaid,
+        remaining,
+        dueDate: order.deliveryDate,
+        daysOverdue,
+        status: order.paymentStatus,
+        createdAt: order.createdAt
+      };
+    });
+
+    // Paiements en attente avec date passée
+    const overduePayments = await prisma.payment.findMany({
+      where: {
+        status: 'EN_ATTENTE',
+        paymentDate: {
+          lt: today
+        }
+      },
+      include: {
+        order: {
+          include: {
+            shop: {
+              select: {
+                id: true,
+                name: true,
+                city: true,
+                phone: true,
+                email: true
+              }
+            }
+          }
+        },
+        invoice: {
+          select: {
+            id: true,
+            invoiceNumber: true
+          }
+        }
+      }
+    });
+
+    overduePayments.forEach(payment => {
+      const daysOverdue = payment.paymentDate ? Math.floor((today - new Date(payment.paymentDate)) / (1000 * 60 * 60 * 24)) : 0;
+      
+      overdue.push({
+        id: payment.id,
+        type: 'PAYMENT',
+        reference: payment.receiptNumber || payment.id.substring(0, 8),
+        invoiceNumber: payment.invoice?.invoiceNumber,
+        client: {
+          id: payment.order?.shop?.id,
+          name: payment.order?.shop?.name || 'N/A',
+          city: payment.order?.shop?.city,
+          phone: payment.order?.shop?.phone,
+          email: payment.order?.shop?.email
+        },
+        amount: payment.amount,
+        paid: 0,
+        remaining: payment.amount,
+        dueDate: payment.paymentDate,
+        daysOverdue,
+        status: payment.status,
+        createdAt: payment.createdAt
+      });
+    });
+
+    overdue.sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+    const totalOverdue = overdue.reduce((sum, item) => sum + item.remaining, 0);
+
+    res.json({
+      success: true,
+      overdue,
+      totalOverdue,
+      count: overdue.length
+    });
+  } catch (error) {
+    logger.error('Erreur recouvrement', { error: error.message });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+/**
+ * POST /api/payments/:id/mark-paid
+ * Marquer un paiement comme payé
+ */
+router.post('/:id/mark-paid', requireAdmin, async (req, res) => {
+  try {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'ID invalide' });
+    }
+
+    const payment = await prisma.payment.findUnique({
+      where: { id: req.params.id },
+      include: {
+        order: {
+          include: { payments: true }
+        }
+      }
+    });
+
+    if (!payment) {
+      return res.status(404).json({ success: false, message: 'Paiement non trouvé' });
+    }
+
+    const updated = await prisma.payment.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'PAYE',
+        paymentDate: new Date()
+      },
+      include: {
+        order: {
+          include: {
+            shop: true
+          }
+        }
+      }
+    });
+
+    // Mettre à jour le statut de la commande
+    if (updated.order) {
+      const totalPaid = updated.order.payments
+        .filter(p => p.id === payment.id ? true : p.status === 'PAYE')
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      let newPaymentStatus = 'EN_ATTENTE';
+      if (totalPaid >= updated.order.totalTTC) {
+        newPaymentStatus = 'PAYE';
+      } else if (totalPaid > 0) {
+        newPaymentStatus = 'EN_ATTENTE';
+      }
+
+      await prisma.order.update({
+        where: { id: updated.order.id },
+        data: { paymentStatus: newPaymentStatus }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Paiement marqué comme payé',
+      payment: updated
+    });
+  } catch (error) {
+    logger.error('Erreur marquer payé', { error: error.message });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 

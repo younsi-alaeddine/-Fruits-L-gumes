@@ -21,8 +21,101 @@ enum Role {
   MANAGER
 }
 
+// Multi-tenant (SaaS): une organisation (client B2B) peut posséder plusieurs magasins
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+
+  shops       Shop[]
+  memberships Membership[]
+
+  @@index([status])
+  @@map("organizations")
+}
+
+// Appartenance d'un utilisateur à une organisation (tenant)
+model Membership {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopMemberships ShopMembership[]
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+// Accès d'un utilisateur (via membership org) à un magasin spécifique
+model ShopMembership {
+  id           String @id @default(uuid())
+  membershipId String
+  shopId       String
+  status       String @default("ACTIVE")
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  shop       Shop       @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, shopId])
+  @@index([shopId])
+  @@map("shop_memberships")
+}
+
+// Assignations de rôles multi-scope (organisation ou magasin) – RBAC
+enum RoleScopeType {
+  ORG
+  SHOP
+}
+
+model RoleAssignment {
+  id        String        @id @default(uuid())
+  userId    String
+  role      Role
+  scopeType RoleScopeType
+  scopeId   String? // ORG: organizationId, SHOP: shopId
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([role, scopeType])
+  @@index([scopeType, scopeId])
+  @@map("role_assignments")
+}
+
+model Permission {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String @id @default(uuid())
+  role         Role
+  permissionId String
+
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([role, permissionId])
+  @@index([role])
+  @@map("role_permissions")
+}
+
 enum OrderStatus {
   NEW
+  AGGREGATED        // ✅ NOUVEAU : Commandes agrégées par date/produit
+  SUPPLIER_ORDERED  // ✅ NOUVEAU : Commande passée au fournisseur
   PREPARATION
   LIVRAISON
   LIVREE
@@ -37,42 +130,75 @@ enum Unit {
 }
 
 model User {
-  id               String         @id @default(uuid())
-  name             String
-  email            String         @unique
-  phone            String?
-  password         String
-  role             Role           @default(CLIENT)
-  resetToken       String?
-  resetTokenExpiry DateTime?
-  deletedAt        DateTime?
-  createdAt        DateTime       @default(now())
-  shop             Shop?
-  notifications    Notification[]
-  sentMessages     Message[]      @relation("SentMessages")
-  receivedMessages Message[]      @relation("ReceivedMessages")
-  driverDeliveries Delivery[]     @relation("DriverDeliveries")
-  auditLogs        AuditLog[]
+  id                      String           @id @default(uuid())
+  name                    String
+  email                   String           @unique
+  phone                   String?
+  password                String
+  role                    Role             @default(CLIENT)
+  resetToken              String?
+  resetTokenExpiry        DateTime?
+  // Confirmation email
+  emailVerified           Boolean          @default(false)
+  emailVerificationToken  String?
+  emailVerificationExpiry DateTime?
+  emailVerifiedAt         DateTime?
+  // Approbation admin
+  isApproved              Boolean          @default(false)
+  approvedBy              String? // ID de l'admin qui a approuvé
+  approvedAt              DateTime?
+  deletedAt               DateTime?
+  avatarUrl               String?          // Photo de profil
+  createdAt               DateTime         @default(now())
+  // Legacy: la relation 1:1 user->shop va être remplacée par memberships (multi-magasins)
+  shops                   Shop[]
+  memberships             Membership[]
+  roleAssignments         RoleAssignment[]
+  notifications           Notification[]
+  sentMessages            Message[]        @relation("SentMessages")
+  receivedMessages        Message[]        @relation("ReceivedMessages")
+  driverDeliveries        Delivery[]               @relation("DriverDeliveries")
+  auditLogs               AuditLog[]
+  clientPricing           ClientPricing[]
+  supplierOrders          SupplierOrder[]          @relation("SupplierOrders")
+  supplierEvaluations     SupplierEvaluation[]     @relation("SupplierEvaluations")
 
   @@index([email])
   @@index([resetToken])
+  @@index([emailVerificationToken])
+  @@index([emailVerified])
+  @@index([isApproved])
   @@index([deletedAt])
   @@map("users")
 }
 
 model Shop {
-  id             String           @id @default(uuid())
-  name           String
-  address        String
-  city           String
-  postalCode     String
-  phone          String?
-  userId         String           @unique
-  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  orders         Order[]
-  RecurringOrder RecurringOrder[]
-  quotes         Quote[]
+  id              String           @id @default(uuid())
+  name            String
+  address         String
+  city            String
+  postalCode      String
+  phone           String?
+  siret           String? // Numéro SIRET
+  tvaNumber       String? // Numéro TVA intracommunautaire
+  contactPerson   String? // Personne de contact
+  contactEmail    String? // Email de contact (peut différer de l'email utilisateur)
+  contactPhone    String? // Téléphone de contact
+  // Nouveau: rattachement à une organisation (tenant)
+  organizationId  String?
+  organization    Organization?    @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  // Legacy: utilisateur principal du magasin (contact). Non unique pour permettre multi-magasins par client.
+  userId          String?
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orders          Order[]
+  RecurringOrder  RecurringOrder[]
+  quotes          Quote[]
+  shopMemberships ShopMembership[]
+  stocks          ShopStock[]
 
+  @@index([siret])
+  @@index([organizationId])
+  @@index([userId])
   @@map("shops")
 }
 
@@ -90,6 +216,7 @@ model Category {
   icon          String?
   color         String?
   description   String?
+  imageUrl      String?       // Image de la catégorie
   isActive      Boolean       @default(true)
   order         Int           @default(0) // Pour l'ordre d'affichage
   deletedAt     DateTime?
@@ -109,6 +236,7 @@ model SubCategory {
   id          String    @id @default(uuid())
   name        String
   icon        String?
+  imageUrl    String?   // Image de la sous-catégorie
   description String?
   categoryId  String
   category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
@@ -126,13 +254,60 @@ model SubCategory {
   @@map("sub_categories")
 }
 
+enum Origin {
+  FRANCE
+  ESPAGNE
+  MAROC
+  PORTUGAL
+  ITALIE
+  BELGIQUE
+  PAYS_BAS
+  AUTRE
+}
+
+enum Packaging {
+  KG
+  UC
+  BAR
+  SAC
+  PCE
+  FIL
+  BOTTE
+  CAISSE
+}
+
+enum Presentation {
+  PCE
+  SAC
+  BAR
+  KGS
+  FIL
+  BOTTE
+  CAISSE
+}
+
+enum DLCType {
+  LONGUE
+  COURTE
+  NORMAL
+}
+
 model Product {
   id                 String          @id @default(uuid())
   name               String
   photoUrl           String?
   priceHT            Float
+  priceHT_T2         Float? // Prix T2 (tarification alternative)
   tvaRate            Float           @default(5.5)
   unit               Unit            @default(kg)
+  packaging          Packaging? // Conditionnement détaillé (KG, UC, BAR, SAC, PCE, FIL)
+  presentation       Presentation? // Présentation (PCE, SAC, BAR, KGS, etc.)
+  origin             Origin? // Origine du produit (France, Espagne, Maroc, etc.)
+  margin             Float? // Marge en pourcentage
+  marginAmount       Float? // Marge en euros
+  cessionPrice       Float? // Prix de cession
+  gencod             String? // Code-barres / Gencod
+  barcode            String? // Code-barres EAN
   category           ProductCategory @default(FRUITS) // Ancien système (pour rétrocompatibilité)
   categoryId         String? // Nouveau système - catégorie personnalisée
   customCategory     Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -143,11 +318,25 @@ model Product {
   isVisibleToClients Boolean         @default(true) // Contrôle la visibilité pour les clients
   stock              Float           @default(0)
   stockAlert         Float           @default(10)
+  isBlocked          Boolean         @default(false) // Produit bloqué/rupture
+  preAssigned        Boolean         @default(false) // Produit pré-assigné
+  isOpportunity      Boolean         @default(false) // Produit opportunité
+  supplyDelay        Int? // Délai d'approvisionnement en jours
+  isInAnimation      Boolean         @default(false) // Produit en animation commerciale
+  hasError           Boolean         @default(false) // Produit avec erreur
+  dlcType            DLCType? // Type de DLC (LONGUE, COURTE, NORMAL)
+  isAdjusted         Boolean         @default(false) // Produit ajusté
+  isInCampaign       Boolean         @default(false) // Produit en campagne
   deletedAt          DateTime?
   createdAt          DateTime        @default(now())
   orderItems         OrderItem[]
   recurringItems     RecurringItem[]
   quoteItems         QuoteItem[]
+  shopStocks         ShopStock[]
+  priceHistory       PriceHistory[]
+  volumePricing      VolumePricing[]
+  clientPricing      ClientPricing[]
+  supplierProducts   SupplierProduct[]
 
   @@index([isActive])
   @@index([isVisibleToClients])
@@ -156,8 +345,96 @@ model Product {
   @@index([subCategory])
   @@index([subCategoryId])
   @@index([stock])
+  @@index([isBlocked])
+  @@index([preAssigned])
+  @@index([isOpportunity])
+  @@index([isInAnimation])
+  @@index([isInCampaign])
+  @@index([gencod])
+  @@index([barcode])
   @@index([deletedAt])
   @@map("products")
+}
+
+// Historique des changements de prix
+model PriceHistory {
+  id          String   @id @default(uuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  oldPriceHT  Float
+  newPriceHT  Float
+  oldPriceT2  Float?
+  newPriceT2  Float?
+  changeType  String   @default("manual") // manual, import, bulk, auto
+  reason      String? // Raison du changement
+  changedBy   String? // ID de l'utilisateur qui a fait le changement
+  changedAt   DateTime @default(now())
+  
+  @@index([productId])
+  @@index([changedAt])
+  @@map("price_history")
+}
+
+// Tarifs dégressifs par volume
+model VolumePricing {
+  id          String   @id @default(uuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  minQuantity Float // Quantité minimale
+  maxQuantity Float? // Quantité maximale (null = illimité)
+  priceHT     Float // Prix HT pour cette tranche
+  discountPercent Float? // Pourcentage de remise
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([productId])
+  @@index([isActive])
+  @@map("volume_pricing")
+}
+
+// Tarifs personnalisés par client
+model ClientPricing {
+  id          String   @id @default(uuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  priceHT     Float // Prix HT personnalisé
+  priceHT_T2  Float? // Prix T2 personnalisé
+  isActive    Boolean  @default(true)
+  validFrom   DateTime @default(now())
+  validUntil  DateTime? // Date d'expiration (null = permanent)
+  notes       String? // Notes sur ce tarif
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([productId, userId])
+  @@index([productId])
+  @@index([userId])
+  @@index([isActive])
+  @@index([validUntil])
+  @@map("client_pricing")
+}
+
+// Stock par magasin (multi-shops). Conserve la compatibilité avec Product.stock (valeur par défaut)
+model ShopStock {
+  id             String   @id @default(uuid())
+  organizationId String?
+  shopId         String
+  productId      String
+  quantity       Float    @default(0)
+  threshold      Float    @default(10)
+  updatedAt      DateTime @updatedAt
+
+  shop    Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, productId])
+  @@index([organizationId])
+  @@index([shopId])
+  @@index([productId])
+  @@map("shop_stocks")
 }
 
 enum PaymentStatus {
@@ -168,45 +445,86 @@ enum PaymentStatus {
 }
 
 model Order {
-  id                 String          @id @default(uuid())
-  shopId             String
-  shop               Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  orderNumber        String?         @unique // Numéro de bon de commande
-  status             OrderStatus     @default(NEW)
-  paymentStatus      PaymentStatus   @default(EN_ATTENTE)
-  totalHT            Float           @default(0)
-  totalTVA           Float           @default(0)
-  totalTTC           Float           @default(0)
-  recurringOrderId   String?         // Lien vers la commande récurrente (si générée automatiquement)
-  recurringOrder     RecurringOrder? @relation(fields: [recurringOrderId], references: [id], onDelete: SetNull)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  items              OrderItem[]
-  payments           Payment[]
-  invoice            Invoice?
-  delivery           Delivery?
-  convertedFromQuote Quote?          @relation("QuoteToOrder")
+  id                  String          @id @default(uuid())
+  shopId              String
+  shop                Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orderNumber         String?         @unique // Numéro de bon de commande
+  status              OrderStatus     @default(NEW)
+  paymentStatus       PaymentStatus   @default(EN_ATTENTE)
+  orderDate           DateTime? // Date de commande
+  deliveryDate        DateTime? // Date de livraison prévue
+  grouping            String? // Regroupement / positionnement
+  department          String?         @default("Fruits et Légumes") // Rayon
+  totalHT             Float           @default(0)
+  totalTVA            Float           @default(0)
+  totalTTC            Float           @default(0)
+  totalPackages       Int?            @default(0) // Nombre de colis
+  totalWeight         Float?          @default(0) // Poids total
+  totalMargin         Float?          @default(0) // Marge totale en euros
+  totalMarginPercent  Float?          @default(0) // Marge totale en pourcentage
+  promoRevenue        Float?          @default(0) // CA promotionnel
+  promoRevenuePercent Float?          @default(0) // Part promo en CA (%)
+  pricingType         String?         @default("T1") // T1 ou T2
+  // Stratégie de prix et ajustement
+  initialPackages     Int? // Nombre de colis initial
+  minPackages         Int? // Nombre de colis minimum autorisé
+  maxPackages         Int? // Nombre de colis maximum autorisé
+  isInAdjustment      Boolean         @default(false) // Commande en ajustement
+  isProvisionalPVC    Boolean         @default(false) // PVC provisoire
+  // Totaux séparés Perm/Promo
+  totalHT_Perm        Float?          @default(0) // Total HT permanent
+  totalHT_Promo       Float?          @default(0) // Total HT promotionnel
+  totalMargin_Perm    Float?          @default(0) // Marge permanente
+  totalMargin_Promo   Float?          @default(0) // Marge promotionnelle
+  totalPC_Perm        Float?          @default(0) // Prix de cession permanent
+  totalPC_Promo       Float?          @default(0) // Prix de cession promotionnel
+  recurringOrderId    String? // Lien vers la commande récurrente (si générée automatiquement)
+  recurringOrder      RecurringOrder? @relation(fields: [recurringOrderId], references: [id], onDelete: SetNull)
+  // ✅ NOUVEAU : Lien vers commande fournisseur (intermédiaire)
+  supplierOrderId     String?
+  supplierOrder       SupplierOrder? @relation(fields: [supplierOrderId], references: [id], onDelete: SetNull)
+  // ✅ NOUVEAU : Date d'agrégation
+  aggregatedAt        DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  items               OrderItem[]
+  payments            Payment[]
+  invoice             Invoice?
+  delivery            Delivery?
+  convertedFromQuote  Quote?          @relation("QuoteToOrder")
+  returns             Return[]
 
   @@index([shopId])
   @@index([orderNumber])
   @@index([status])
   @@index([paymentStatus])
+  @@index([orderDate])
+  @@index([deliveryDate])
+  @@index([isInAdjustment])
   @@index([createdAt])
   @@index([recurringOrderId])
+  @@index([supplierOrderId])
+  @@index([aggregatedAt])
   @@map("orders")
 }
 
 model OrderItem {
-  id        String  @id @default(uuid())
-  orderId   String
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-  quantity  Float
-  priceHT   Float
-  totalHT   Float
-  totalTVA  Float
-  totalTTC  Float
+  id              String  @id @default(uuid())
+  orderId         String
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product @relation(fields: [productId], references: [id])
+  quantity        Float // Quantité demandée
+  quantityOrdered Float? // Quantité commandée (peut différer de quantity)
+  quantityPromo   Float?  @default(0) // Quantité en promotion
+  quantityDelivered Float? // ✅ NOUVEAU : Quantité réellement livrée (pour écarts fournisseur)
+  priceHT         Float
+  priceHT_T2      Float? // Prix T2 si applicable
+  margin          Float? // Marge en pourcentage
+  marginAmount    Float? // Marge en euros
+  totalHT         Float
+  totalTVA        Float
+  totalTTC        Float
 
   @@index([orderId])
   @@index([productId])
@@ -214,23 +532,29 @@ model OrderItem {
 }
 
 model Payment {
-  id            String        @id @default(uuid())
-  orderId       String
-  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  receiptNumber String?       @unique // Numéro de reçu
+  id            String         @id @default(uuid())
+  orderId       String?
+  order         Order?         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoiceId     String?
+  invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  receiptNumber String?        @unique // Numéro de reçu
   amount        Float
-  paymentMethod String? // CASH, CARD, TRANSFER, CHECK
+  paymentMethod PaymentMethod  @default(CASH) // Enum PaymentMethod
+  reference     String? // N° chèque, transaction, etc.
   paymentDate   DateTime?
-  status        PaymentStatus @default(EN_ATTENTE)
+  status        PaymentStatus  @default(EN_ATTENTE)
   notes         String?
   fileUrl       String? // URL du PDF du reçu
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  recordedBy    String? // ID utilisateur qui a enregistré
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@index([orderId])
+  @@index([invoiceId])
   @@index([receiptNumber])
   @@index([status])
   @@index([paymentDate])
+  @@index([paymentMethod])
   @@map("payments")
 }
 
@@ -332,19 +656,125 @@ enum QuoteStatus {
   CONVERTED
 }
 
+enum InvoiceStatus {
+  DRAFT         // Brouillon
+  SENT          // Envoyée
+  PAID          // Payée
+  PARTIAL       // Partiellement payée
+  OVERDUE       // En retard
+  CANCELLED     // Annulée
+  CREDITED      // Avoir émis
+}
+
+enum PaymentMethod {
+  CASH          // Espèces
+  CHECK         // Chèque
+  CARD          // Carte bancaire
+  TRANSFER      // Virement
+  DIRECT_DEBIT  // Prélèvement
+  OTHER         // Autre
+}
+
 model Invoice {
-  id            String    @id @default(uuid())
-  orderId       String    @unique
-  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  invoiceNumber String    @unique
-  fileUrl       String?
-  generatedAt   DateTime  @default(now())
-  sentAt        DateTime?
-  createdAt     DateTime  @default(now())
+  id                String         @id @default(uuid())
+  orderId           String         @unique
+  order             Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoiceNumber     String         @unique
+  status            InvoiceStatus  @default(DRAFT)
+  type              String         @default("INVOICE") // INVOICE, PROFORMA, CREDIT_NOTE
+  
+  // Montants
+  totalHT           Float
+  totalTVA          Float
+  totalTTC          Float
+  paidAmount        Float          @default(0) // Montant déjà payé
+  remainingAmount   Float // Montant restant à payer
+  
+  // Échéances et relances
+  dueDate           DateTime? // Date d'échéance
+  paymentTerms      String         @default("Net 30 jours") // Conditions de paiement
+  reminderSentAt    DateTime? // Date dernière relance
+  reminderCount     Int            @default(0) // Nombre de relances
+  
+  // Fichiers et envois
+  fileUrl           String?
+  generatedAt       DateTime       @default(now())
+  sentAt            DateTime?
+  paidAt            DateTime? // Date de paiement complet
+  
+  // Notes et références
+  notes             String? // Notes internes
+  clientNotes       String? // Notes visibles par le client
+  reference         String? // Référence client (bon de commande, etc.)
+  
+  // Relations
+  payments          Payment[]
+  creditNotes       CreditNote[]   @relation("InvoiceCreditNotes")
+  appliedCreditNote CreditNote?    @relation("AppliedToInvoice")
+  
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([orderId])
   @@index([invoiceNumber])
+  @@index([status])
+  @@index([dueDate])
+  @@index([type])
   @@map("invoices")
+}
+
+model CreditNote {
+  id                String    @id @default(uuid())
+  creditNoteNumber  String    @unique // Numéro de l'avoir
+  originalInvoiceId String
+  originalInvoice   Invoice   @relation("InvoiceCreditNotes", fields: [originalInvoiceId], references: [id], onDelete: Restrict)
+  appliedToInvoiceId String?  @unique
+  appliedToInvoice  Invoice?  @relation("AppliedToInvoice", fields: [appliedToInvoiceId], references: [id], onDelete: SetNull)
+  
+  // Montants
+  amount            Float // Montant de l'avoir
+  reason            String // Raison de l'avoir
+  status            String    @default("PENDING") // PENDING, APPLIED, REFUNDED
+  
+  // Fichiers
+  fileUrl           String?
+  generatedAt       DateTime  @default(now())
+  sentAt            DateTime?
+  appliedAt         DateTime? // Date d'application de l'avoir
+  
+  notes             String?
+  returnRef         Return? // Relation inverse pour Return
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([originalInvoiceId])
+  @@index([creditNoteNumber])
+  @@index([status])
+  @@map("credit_notes")
+}
+
+model InvoiceTemplate {
+  id          String   @id @default(uuid())
+  name        String // Nom du modèle
+  isDefault   Boolean  @default(false)
+  
+  // Personnalisation
+  headerText  String? // Texte d'en-tête personnalisé
+  footerText  String? // Texte de pied de page
+  logoUrl     String? // Logo personnalisé
+  
+  // Mentions légales
+  legalMentions String? // Mentions légales
+  cgv           String? // Conditions générales de vente
+  
+  // Configuration
+  showTVA       Boolean  @default(true)
+  showDiscount  Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("invoice_templates")
 }
 
 enum RecurrenceType {
@@ -363,7 +793,7 @@ model RecurringOrder {
   dayOfWeek  Int? // 0-6 (dimanche-samedi)
   dayOfMonth Int? // 1-31
   items      RecurringItem[]
-  orders     Order[]         // Commandes générées par cette commande récurrente
+  orders     Order[] // Commandes générées par cette commande récurrente
   isActive   Boolean         @default(true)
   nextRun    DateTime
   lastRun    DateTime?
@@ -467,6 +897,175 @@ model Message {
   @@map("messages")
 }
 
+// Fournisseurs
+model Supplier {
+  id                   String              @id @default(uuid())
+  name                 String // Nom entreprise
+  contact              String // Contact principal
+  email                String              @unique
+  phone                String
+  address              String?
+  city                 String?
+  postalCode           String?
+  country              String?             @default("France")
+  siret                String?
+  tva                  String? // N° TVA intracommunautaire
+  paymentTerms         String              @default("Net 30 jours") // Conditions de paiement
+  averageDeliveryDays  Int                 @default(2) // Délai moyen livraison
+  minOrderAmount       Float?              @default(0) // Montant minimum commande
+  bankAccount          String? // RIB/IBAN
+  website              String?
+  notes                String? // Notes internes
+  isActive             Boolean             @default(true)
+  rating               Float?              @default(0) // Note moyenne (0-5)
+  reliabilityScore     Int?                @default(100) // Score fiabilité (0-100)
+  totalOrders          Int                 @default(0) // Nombre total commandes
+  totalSpent           Float               @default(0) // Montant total dépensé
+  deletedAt            DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  products             SupplierProduct[]
+  orders               SupplierOrder[]
+  evaluations          SupplierEvaluation[]
+  documents            SupplierDocument[]
+
+  @@index([isActive])
+  @@index([deletedAt])
+  @@index([email])
+  @@map("suppliers")
+}
+
+// Catalogue produits fournisseur
+model SupplierProduct {
+  id              String    @id @default(uuid())
+  supplierId      String
+  supplier        Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  productId       String?
+  product         Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName     String // Nom du produit chez le fournisseur
+  reference       String? // Référence fournisseur
+  unitPrice       Float // Prix unitaire HT
+  unit            String    @default("kg")
+  minOrderQty     Float     @default(1) // Quantité minimum commande
+  packageSize     Float? // Taille du conditionnement
+  deliveryDays    Int       @default(2) // Délai livraison
+  isAvailable     Boolean   @default(true)
+  lastPriceUpdate DateTime  @default(now())
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([supplierId, productName])
+  @@index([supplierId])
+  @@index([productId])
+  @@index([isAvailable])
+  @@map("supplier_products")
+}
+
+// Commandes fournisseurs
+model SupplierOrder {
+  id              String               @id @default(uuid())
+  orderNumber     String               @unique
+  supplierId      String
+  supplier        Supplier             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  userId          String // Utilisateur qui a passé la commande
+  user            User                 @relation("SupplierOrders", fields: [userId], references: [id], onDelete: Restrict)
+  status          SupplierOrderStatus  @default(DRAFT)
+  orderDate       DateTime             @default(now())
+  expectedDate    DateTime? // Date livraison prévue
+  deliveredDate   DateTime? // Date livraison réelle
+  totalHT         Float                @default(0)
+  totalTTC        Float                @default(0)
+  notes           String?
+  trackingNumber  String? // N° de suivi
+  invoiceNumber   String? // N° facture fournisseur
+  invoiceUrl      String? // URL facture
+  isPaid          Boolean              @default(false)
+  paidAt          DateTime?
+  paymentMethod   String?
+  items           SupplierOrderItem[]
+  orders          Order[] // ✅ NOUVEAU : Commandes magasins liées
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([supplierId])
+  @@index([userId])
+  @@index([status])
+  @@index([orderDate])
+  @@map("supplier_orders")
+}
+
+// Lignes commande fournisseur
+model SupplierOrderItem {
+  id                String         @id @default(uuid())
+  orderId           String
+  order             SupplierOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  supplierProductId String?
+  productName       String
+  reference         String?
+  quantity          Float
+  unit              String
+  unitPrice         Float
+  totalHT           Float
+  receivedQuantity  Float?         @default(0) // Quantité réellement reçue
+  createdAt         DateTime       @default(now())
+
+  @@index([orderId])
+  @@map("supplier_order_items")
+}
+
+// Évaluations fournisseurs
+model SupplierEvaluation {
+  id               String   @id @default(uuid())
+  supplierId       String
+  supplier         Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User     @relation("SupplierEvaluations", fields: [userId], references: [id], onDelete: Cascade)
+  orderId          String? // Lié à une commande spécifique
+  rating           Int // Note 1-5
+  qualityScore     Int? // Note qualité produits (1-5)
+  deliveryScore    Int? // Note respect délais (1-5)
+  serviceScore     Int? // Note service client (1-5)
+  priceScore       Int? // Note rapport qualité/prix (1-5)
+  comment          String?
+  wouldRecommend   Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@index([supplierId])
+  @@index([userId])
+  @@index([rating])
+  @@map("supplier_evaluations")
+}
+
+// Documents fournisseurs
+model SupplierDocument {
+  id         String   @id @default(uuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  type       String // "contract", "quote", "invoice", "certificate", "other"
+  name       String
+  url        String
+  fileSize   Int? // Taille en bytes
+  notes      String?
+  uploadedBy String?
+  createdAt  DateTime @default(now())
+
+  @@index([supplierId])
+  @@index([type])
+  @@map("supplier_documents")
+}
+
+// Enum statut commande fournisseur
+enum SupplierOrderStatus {
+  DRAFT // Brouillon
+  SENT // Envoyée
+  CONFIRMED // Confirmée par fournisseur
+  IN_TRANSIT // En transit
+  DELIVERED // Livrée
+  CANCELLED // Annulée
+  PROBLEM // Problème
+}
+
 model Setting {
   id          String   @id @default(uuid())
   key         String   @unique
@@ -479,4 +1078,112 @@ model Setting {
 
   @@index([category])
   @@map("settings")
+}
+
+// Messages internes / Alertes système
+model InternalMessage {
+  id        String    @id @default(uuid())
+  title     String
+  content   String
+  type      String    @default("info") // "info", "alert", "promo", "weather"
+  isActive  Boolean   @default(true)
+  priority  Int       @default(0) // 0 = normal, 1 = important, 2 = urgent
+  validFrom DateTime?
+  validTo   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([isActive])
+  @@index([type])
+  @@index([validFrom, validTo])
+  @@map("internal_messages")
+}
+
+// Configuration de l'heure limite de commande
+model OrderDeadline {
+  id             String   @id @default(uuid())
+  dayOfWeek      Int? // 0-6 (dimanche-samedi), null = tous les jours
+  deadlineHour   Int // Heure limite (0-23)
+  deadlineMinute Int      @default(0) // Minute limite (0-59)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([dayOfWeek])
+  @@index([isActive])
+  @@map("order_deadlines")
+}
+
+// Retours produits
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REFUNDED
+  CREDITED
+}
+
+enum ReturnReason {
+  DEFECTIVE
+  WRONG_PRODUCT
+  DAMAGED
+  EXPIRED
+  NOT_ORDERED
+  QUALITY_ISSUE
+  OTHER
+}
+
+model Return {
+  id              String       @id @default(uuid())
+  returnNumber    String       @unique // Numéro du retour
+  orderId         String
+  order           Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  status          ReturnStatus @default(PENDING)
+  reason          ReturnReason
+  description     String? // Description détaillée
+  
+  items           ReturnItem[]
+  
+  totalAmount     Float        @default(0) // Montant total du retour
+  refundAmount    Float        @default(0) // Montant remboursé
+  creditNoteId    String?      @unique
+  creditNote      CreditNote?  @relation(fields: [creditNoteId], references: [id])
+  
+  requestedBy     String? // ID utilisateur qui demande
+  requestedAt     DateTime     @default(now())
+  processedBy     String? // ID utilisateur qui traite
+  processedAt     DateTime?
+  
+  refundMethod    String? // CREDIT_NOTE, REFUND, REPLACEMENT
+  photoUrl        String? // Photo du produit retourné
+  notes           String?
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([orderId])
+  @@index([returnNumber])
+  @@index([status])
+  @@index([requestedAt])
+  @@map("returns")
+}
+
+model ReturnItem {
+  id           String  @id @default(uuid())
+  returnId     String
+  return       Return  @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  
+  productId    String
+  productName  String // Nom du produit au moment du retour
+  quantity     Float
+  unitPrice    Float
+  totalPrice   Float
+  
+  reason       String?
+  notes        String?
+  
+  @@index([returnId])
+  @@index([productId])
+  @@map("return_items")
 }

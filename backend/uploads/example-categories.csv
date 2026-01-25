@@ -1,0 +1,9 @@
+Nom Catégorie;Description Catégorie;Icon;Couleur;Nom Sous-catégorie;Description Sous-catégorie;Icon Sous-cat;Actif
+Fruits;Tous les fruits frais;🍎;#FF5733;Pommes;Variétés de pommes;🍏;Oui
+Fruits;;;;Agrumes;Citrons oranges pamplemousses;🍊;Oui
+Fruits;;;;Fruits rouges;Fraises framboises myrtilles;🍓;Oui
+Légumes;Légumes frais de saison;🥬;#4CAF50;Salades;Laitues roquettes;🥗;Oui
+Légumes;;;;Tomates;Tomates grappe cherry;🍅;Oui
+Légumes;;;;Légumes-racines;Carottes navets betteraves;🥕;Oui
+Produits exotiques;Fruits et légumes exotiques;🥭;#FF9800;Fruits tropicaux;Mangues ananas papayes;🍍;Oui
+Herbes aromatiques;Herbes fraîches;🌿;#8BC34A;;;Oui

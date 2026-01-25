@@ -9,6 +9,7 @@ const { calculateOrderItemTotals, calculateOrderTotals } = require('../utils/cal
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs').promises;
+const { appInfo } = require('../config/appInfo');
 
 /**
  * Générer un numéro de devis unique
@@ -39,9 +40,10 @@ const generateQuotePDF = async (quote, shop) => {
       doc.moveDown();
       
       // Informations entreprise
-      doc.fontSize(12).text('Distribution Fruits & Légumes', { align: 'left' });
-      doc.fontSize(10).text('123 Rue des Fruits', { align: 'left' });
-      doc.fontSize(10).text('75000 Paris, France', { align: 'left' });
+      // Phase 2: make document header configurable (deploy-safe)
+      doc.fontSize(12).text(appInfo.companyName, { align: 'left' });
+      doc.fontSize(10).text(appInfo.companyAddressLine1, { align: 'left' });
+      doc.fontSize(10).text(appInfo.companyAddressLine2, { align: 'left' });
       doc.moveDown();
 
       // Numéro de devis et date
@@ -136,9 +138,13 @@ router.get('/', authenticate, async (req, res) => {
     const { status, shopId, page = 1, limit = 20 } = req.query;
     const where = {};
     
-    // Les clients voient seulement leurs devis
-    if (req.user.role === 'CLIENT' && req.user.shop) {
-      where.shopId = req.user.shop.id;
+    // Les clients voient seulement leurs devis (magasin actif)
+    if (req.user.role === 'CLIENT') {
+      const activeShopId = req.context?.activeShopId;
+      if (!activeShopId) {
+        return res.status(400).json({ success: false, message: 'Magasin non trouvé' });
+      }
+      where.shopId = activeShopId;
     }
     
     // Filtres admin
@@ -212,6 +218,16 @@ router.get('/', authenticate, async (req, res) => {
  */
 router.get('/:id', authenticate, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    // RISK: Invalid UUID format could cause database errors or expose information
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de devis invalide'
+      });
+    }
+
     const quote = await prisma.quote.findUnique({
       where: { id: req.params.id },
       include: {
@@ -239,7 +255,10 @@ router.get('/:id', authenticate, async (req, res) => {
     }
 
     // Vérifier les permissions
-    if (req.user.role === 'CLIENT' && quote.shopId !== req.user.shop?.id) {
+    if (
+      req.user.role === 'CLIENT' &&
+      !(req.context?.accessibleShops || []).some(s => s.id === quote.shopId)
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Accès refusé',
@@ -538,6 +557,15 @@ router.put(
  */
 router.post('/:id/send', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de devis invalide'
+      });
+    }
+
     const quote = await prisma.quote.findUnique({
       where: { id: req.params.id },
       include: {
@@ -590,6 +618,15 @@ router.post('/:id/send', authenticate, requireAdmin, async (req, res) => {
  */
 router.post('/:id/convert', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de devis invalide'
+      });
+    }
+
     const quote = await prisma.quote.findUnique({
       where: { id: req.params.id },
       include: {
@@ -715,7 +752,10 @@ router.get('/:id/download', authenticate, async (req, res) => {
     }
 
     // Vérifier les permissions
-    if (req.user.role === 'CLIENT' && quote.shopId !== req.user.shop?.id) {
+    if (
+      req.user.role === 'CLIENT' &&
+      !(req.context?.accessibleShops || []).some(s => s.id === quote.shopId)
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Accès refusé',

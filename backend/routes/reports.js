@@ -177,4 +177,270 @@ router.get('/products', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/reports/categories
+ * Rapport par catégories
+ */
+router.get('/categories', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    const where = {};
+    if (startDate && endDate) {
+      where.createdAt = {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      };
+    }
+
+    const orders = await prisma.order.findMany({
+      where,
+      include: {
+        items: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+
+    const categorySales = {};
+    
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        const category = item.product.category || 'Non classé';
+        if (!categorySales[category]) {
+          categorySales[category] = {
+            category,
+            quantity: 0,
+            totalHT: 0,
+            totalTTC: 0,
+            productCount: new Set(),
+          };
+        }
+        categorySales[category].quantity += item.quantity;
+        categorySales[category].totalHT += item.totalHT;
+        categorySales[category].totalTTC += item.totalTTC;
+        categorySales[category].productCount.add(item.productId);
+      });
+    });
+
+    const categories = Object.values(categorySales).map(cat => ({
+      ...cat,
+      productCount: cat.productCount.size
+    })).sort((a, b) => b.totalTTC - a.totalTTC);
+
+    res.json({
+      success: true,
+      categories,
+    });
+  } catch (error) {
+    logger.error('Erreur génération rapport catégories:', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération du rapport',
+    });
+  }
+});
+
+/**
+ * GET /api/reports/clients
+ * Rapport par clients
+ */
+router.get('/clients', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    const where = {};
+    if (startDate && endDate) {
+      where.createdAt = {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      };
+    }
+
+    const orders = await prisma.order.findMany({
+      where,
+      include: {
+        shop: {
+          include: {
+            organization: true
+          }
+        },
+      },
+    });
+
+    const clientSales = {};
+
+    orders.forEach(order => {
+      const clientId = order.shop?.organizationId || order.shopId || 'unknown';
+      const clientName = order.shop?.organization?.name || order.shop?.name || 'Non défini';
+      
+      if (!clientSales[clientId]) {
+        clientSales[clientId] = {
+          clientId,
+          clientName,
+          orderCount: 0,
+          totalHT: 0,
+          totalTTC: 0,
+          shopsCount: new Set(),
+        };
+      }
+      clientSales[clientId].orderCount += 1;
+      clientSales[clientId].totalHT += order.totalHT || 0;
+      clientSales[clientId].totalTTC += order.totalTTC || 0;
+      if (order.shopId) clientSales[clientId].shopsCount.add(order.shopId);
+    });
+
+    const clients = Object.values(clientSales).map(client => ({
+      ...client,
+      shopsCount: client.shopsCount.size,
+      averageOrderValue: client.orderCount > 0 ? client.totalTTC / client.orderCount : 0
+    })).sort((a, b) => b.totalTTC - a.totalTTC);
+
+    res.json({
+      success: true,
+      clients,
+    });
+  } catch (error) {
+    logger.error('Erreur génération rapport clients:', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération du rapport',
+    });
+  }
+});
+
+/**
+ * GET /api/reports/trends
+ * Rapport tendances (évolution dans le temps)
+ */
+router.get('/trends', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { period = 'month' } = req.query;
+    
+    // Calculer la date de début selon la période
+    const now = new Date();
+    const startDate = new Date();
+    
+    if (period === 'week') {
+      startDate.setDate(now.getDate() - 7);
+    } else if (period === 'month') {
+      startDate.setMonth(now.getMonth() - 1);
+    } else if (period === 'year') {
+      startDate.setFullYear(now.getFullYear() - 1);
+    }
+
+    const orders = await prisma.order.findMany({
+      where: {
+        createdAt: {
+          gte: startDate,
+          lte: now
+        }
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    });
+
+    // Grouper par jour/semaine/mois selon la période
+    const timeline = {};
+    
+    orders.forEach(order => {
+      let key;
+      const date = new Date(order.createdAt);
+      
+      if (period === 'week') {
+        key = date.toISOString().split('T')[0]; // Par jour
+      } else if (period === 'month') {
+        key = date.toISOString().split('T')[0]; // Par jour
+      } else {
+        // Par mois pour l'année
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      }
+      
+      if (!timeline[key]) {
+        timeline[key] = {
+          date: key,
+          orderCount: 0,
+          revenue: 0,
+          commission: 0
+        };
+      }
+      
+      timeline[key].orderCount += 1;
+      timeline[key].revenue += order.totalTTC || 0;
+      timeline[key].commission += order.totalMargin || 0;
+    });
+
+    const trends = Object.values(timeline).sort((a, b) => 
+      new Date(a.date) - new Date(b.date)
+    );
+
+    res.json({
+      success: true,
+      period,
+      trends,
+    });
+  } catch (error) {
+    logger.error('Erreur génération rapport tendances:', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération du rapport',
+    });
+  }
+});
+
+/**
+ * GET /api/reports/performance
+ * Rapport de performance global
+ */
+router.get('/performance', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    const where = {};
+    if (startDate && endDate) {
+      where.createdAt = {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      };
+    }
+
+    const [orders, products, orgCount, shops] = await Promise.all([
+      prisma.order.findMany({ where }),
+      prisma.product.count({ where: { isActive: true } }),
+      prisma.organization.count(),
+      prisma.shop.count()
+    ]);
+
+    const performance = {
+      totalOrders: orders.length,
+      totalRevenue: orders.reduce((sum, o) => sum + (o.totalTTC || 0), 0),
+      totalCommission: orders.reduce((sum, o) => sum + (o.totalMargin || 0), 0),
+      averageOrderValue: orders.length > 0 ? orders.reduce((sum, o) => sum + (o.totalTTC || 0), 0) / orders.length : 0,
+      activeProducts: products,
+      totalClients: orgCount,
+      totalShops: shops,
+      ordersByStatus: {
+        pending: orders.filter(o => ['en attente', 'nouveau', 'NEW'].includes(o.status)).length,
+        validated: orders.filter(o => ['validée', 'VALIDATED'].includes(o.status)).length,
+        delivered: orders.filter(o => ['livrée', 'DELIVERED'].includes(o.status)).length,
+        cancelled: orders.filter(o => ['annulée', 'CANCELLED'].includes(o.status)).length
+      }
+    };
+
+    res.json({
+      success: true,
+      performance,
+    });
+  } catch (error) {
+    logger.error('Erreur génération rapport performance:', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération du rapport',
+    });
+  }
+});
+
 module.exports = router;

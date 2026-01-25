@@ -2,10 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const prisma = require('../config/database');
-const { authenticate, requireClient } = require('../middleware/auth');
+const { authenticate, requireClient, requireRole } = require('../middleware/auth');
 const { calculateOrderItemTotals, calculateOrderTotals } = require('../utils/calculations');
+const { aggregateOrdersByDateAndProduct, groupBySupplier, createSupplierOrderFromAggregation } = require('../utils/orderAggregation');
+const { validateTransition } = require('../middleware/orderStateMachine');
 const PDFDocument = require('pdfkit');
 const logger = require('../utils/logger');
+const { appInfo } = require('../config/appInfo');
 
 /**
  * Générer un numéro de bon de commande unique
@@ -36,9 +39,10 @@ const generateOrderConfirmationPDF = async (order, shop) => {
       doc.moveDown();
       
       // Informations entreprise
-      doc.fontSize(12).text('Distribution Fruits & Légumes', { align: 'left' });
-      doc.fontSize(10).text('123 Rue des Fruits', { align: 'left' });
-      doc.fontSize(10).text('75000 Paris, France', { align: 'left' });
+      // Phase 2: make document header configurable (deploy-safe)
+      doc.fontSize(12).text(appInfo.companyName, { align: 'left' });
+      doc.fontSize(10).text(appInfo.companyAddressLine1, { align: 'left' });
+      doc.fontSize(10).text(appInfo.companyAddressLine2, { align: 'left' });
       doc.moveDown();
 
       // Numéro de commande et date
@@ -189,7 +193,7 @@ router.post(
       }
 
       const { items } = req.body;
-      const shopId = req.user.shop?.id;
+      const shopId = req.context?.activeShopId;
 
       if (!shopId) {
         return res.status(400).json({ message: 'Magasin non trouvé pour cet utilisateur' });
@@ -229,35 +233,11 @@ router.post(
       // Calculer les totaux de la commande
       const orderTotals = calculateOrderTotals(orderItems);
 
-      // Vérifier le stock disponible pour chaque produit (sans bloquer la commande)
-      // Permettre les commandes même si le stock est insuffisant ou nul
-      const stockWarnings = [];
-      for (const item of orderItems) {
-        const product = products.find(p => p.id === item.productId);
-        
-        // Vérifier si le stock est insuffisant ou nul
-        if (product.stock < item.quantity) {
-          if (product.stock === 0) {
-            stockWarnings.push({
-              productId: product.id,
-              productName: product.name,
-              requested: item.quantity,
-              available: 0,
-              needsPreparation: true
-            });
-          } else if (product.stock < item.quantity) {
-            stockWarnings.push({
-              productId: product.id,
-              productName: product.name,
-              requested: item.quantity,
-              available: product.stock,
-              needsPreparation: true
-            });
-          }
-        }
-      }
+      // ✅ ADMIN est un intermédiaire (broker), pas de vérification de stock
+      // Les écarts viendront des fournisseurs lors de la réception
+      const stockWarnings = []; // Vide pour un intermédiaire
 
-      // Créer la commande et mettre à jour le stock dans une transaction
+      // Créer la commande (sans décrémenter de stock)
       const order = await prisma.$transaction(async (tx) => {
         // Créer la commande
         const newOrder = await tx.order.create({
@@ -285,32 +265,13 @@ router.post(
           }
         });
 
-        // Mettre à jour le stock pour chaque produit
-        // Ne décrémenter que le stock disponible (ne pas aller en négatif)
-        for (const item of orderItems) {
-          const product = products.find(p => p.id === item.productId);
-          const availableStock = Math.max(0, product.stock);
-          const stockToDecrement = Math.min(item.quantity, availableStock);
-          
-          if (stockToDecrement > 0) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: {
-                stock: {
-                  decrement: stockToDecrement
-                }
-              }
-            });
-          }
-        }
+        // ✅ ADMIN est un intermédiaire, pas de décrémentation de stock
+        // Le stock sera géré par les fournisseurs
 
         return newOrder;
       });
 
-      // Ajouter les avertissements de stock à la réponse
-      if (stockWarnings.length > 0) {
-        order.stockWarnings = stockWarnings;
-      }
+      // ✅ Pas d'avertissements de stock pour un intermédiaire
 
       // Créer une notification pour les admins
       try {
@@ -327,15 +288,19 @@ router.post(
       try {
         const user = await prisma.user.findUnique({
           where: { id: req.user.id },
-          include: { shop: true },
+          select: { id: true, email: true, name: true },
+        });
+        const shop = await prisma.shop.findUnique({
+          where: { id: shopId },
+          select: { id: true, name: true, city: true, address: true, postalCode: true, phone: true }
         });
         
-        if (user && user.email) {
+        if (user && user.email && shop) {
           const emailService = require('../utils/emailService');
           await emailService.sendOrderConfirmationEmail(
             user.email,
             user.name,
-            order
+            { ...order, shop }
           );
         }
       } catch (emailError) {
@@ -346,22 +311,26 @@ router.post(
         });
       }
 
-      // Message de succès avec avertissement si nécessaire
-      let message = 'Commande créée avec succès';
-      if (stockWarnings.length > 0) {
-        const productsNeedingPrep = stockWarnings.map(w => w.productName).join(', ');
-        message += `. Note: ${stockWarnings.length} produit(s) nécessitent une préparation (${productsNeedingPrep})`;
-      }
+      // Message de succès
+      const message = 'Commande créée avec succès';
 
       res.status(201).json({
         success: true,
         message,
-        order,
-        stockWarnings: stockWarnings.length > 0 ? stockWarnings : undefined
+        order
       });
     } catch (error) {
-      console.error('Erreur création commande:', error);
-      res.status(500).json({ message: 'Erreur lors de la création de la commande' });
+      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+      // RISK: console.error may expose stack traces and sensitive data in production logs
+      logger.error('Erreur création commande', { 
+        error: error.message,
+        userId: req.user?.id,
+        shopId: req.context?.activeShopId 
+      });
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur lors de la création de la commande' 
+      });
     }
   }
 );
@@ -373,32 +342,34 @@ router.post(
 router.get('/', authenticate, async (req, res) => {
   try {
     let where = {};
+    const shopIds = (req.context?.accessibleShops || []).map(s => s.id);
 
-    // Les clients voient uniquement leurs commandes
-    if (req.user.role === 'CLIENT') {
-      if (!req.user.shop?.id) {
-        return res.status(400).json({ 
-          success: false,
-          message: 'Magasin non trouvé' 
-        });
-      }
-      where.shopId = req.user.shop.id;
-    }
-
-    // Filtres optionnels pour les admins
     if (req.user.role === 'ADMIN') {
       if (req.query.shopId) where.shopId = req.query.shopId;
       if (req.query.status) where.status = req.query.status;
       if (req.query.startDate || req.query.endDate) {
         where.createdAt = {};
-        if (req.query.startDate) {
-          where.createdAt.gte = new Date(req.query.startDate);
-        }
+        if (req.query.startDate) where.createdAt.gte = new Date(req.query.startDate);
         if (req.query.endDate) {
           const endDate = new Date(req.query.endDate);
           endDate.setHours(23, 59, 59, 999);
           where.createdAt.lte = endDate;
         }
+      }
+    } else {
+      // Non-ADMIN: restrict to accessible shops (IDOR fix)
+      if (shopIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'Magasin non trouvé' });
+      }
+      const scope = req.query.scope === 'org' ? 'org' : 'shop';
+      if (scope === 'org') {
+        where.shopId = { in: shopIds };
+      } else {
+        const activeShopId = req.context?.activeShopId;
+        if (!activeShopId) {
+          return res.status(400).json({ success: false, message: 'Magasin non trouvé' });
+        }
+        where.shopId = activeShopId;
       }
     }
 
@@ -458,8 +429,16 @@ router.get('/', authenticate, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Erreur récupération commandes:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération commandes', { 
+      error: error.message,
+      userId: req.user?.id,
+      role: req.user?.role 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -487,6 +466,16 @@ router.get('/', authenticate, async (req, res) => {
  */
 router.get('/:id', authenticate, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    // RISK: Invalid UUID format could cause database errors or expose information
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID de commande invalide' 
+      });
+    }
+
     const order = await prisma.order.findUnique({
       where: { id: req.params.id },
       include: {
@@ -520,15 +509,29 @@ router.get('/:id', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'Commande non trouvée' });
     }
 
-    // Vérifier que le client ne peut voir que ses propres commandes
-    if (req.user.role === 'CLIENT' && order.shopId !== req.user.shop?.id) {
+    // Access control: ADMIN all, others only own shops (IDOR fix)
+    const canAccess = req.user.role === 'ADMIN' ||
+      (req.context?.accessibleShops || []).some(s => s.id === order.shopId);
+    if (!canAccess) {
       return res.status(403).json({ message: 'Accès refusé' });
     }
 
-    res.json({ order });
+    res.json({ 
+      success: true,
+      order 
+    });
   } catch (error) {
-    console.error('Erreur récupération commande:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    // RISK: console.error may expose stack traces and sensitive data in production logs
+    logger.error('Erreur récupération commande', { 
+      error: error.message,
+      orderId: req.params.id,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -571,7 +574,7 @@ router.put(
   authenticate,
   require('../middleware/auth').requireAdmin,
   [
-    body('status').isIn(['NEW', 'PREPARATION', 'LIVRAISON', 'LIVREE', 'ANNULEE']).withMessage('Statut invalide'),
+    body('status').isIn(['NEW', 'AGGREGATED', 'SUPPLIER_ORDERED', 'PREPARATION', 'LIVRAISON', 'LIVREE', 'ANNULEE']).withMessage('Statut invalide'),
   ],
   async (req, res) => {
     try {
@@ -594,6 +597,11 @@ router.put(
               },
             },
           },
+          items: {
+            include: {
+              product: true
+            }
+          }
         },
       });
 
@@ -629,6 +637,53 @@ router.put(
           }
         }
       });
+
+      // ✅ NOUVEAU : Mettre à jour le stock du magasin quand la commande est livrée
+      if (newStatus === 'LIVREE' && oldStatus !== 'LIVREE') {
+        try {
+          for (const item of updatedOrder.items) {
+            // Utiliser quantityDelivered si disponible, sinon quantity
+            const quantityToAdd = item.quantityDelivered || item.quantity || 0;
+            
+            if (quantityToAdd > 0 && item.productId) {
+              // Mettre à jour ou créer le stock du magasin
+              await prisma.shopStock.upsert({
+                where: {
+                  shopId_productId: {
+                    shopId: order.shopId,
+                    productId: item.productId,
+                  },
+                },
+                update: {
+                  quantity: {
+                    increment: quantityToAdd,
+                  },
+                },
+                create: {
+                  shopId: order.shopId,
+                  productId: item.productId,
+                  quantity: quantityToAdd,
+                  threshold: item.product.stockAlert || 10,
+                },
+              });
+              
+              logger.info('Stock magasin mis à jour après livraison', {
+                shopId: order.shopId,
+                productId: item.productId,
+                quantityAdded: quantityToAdd,
+                orderId: order.id,
+              });
+            }
+          }
+        } catch (stockError) {
+          logger.error('Erreur mise à jour stock magasin après livraison', {
+            error: stockError.message,
+            orderId: order.id,
+            shopId: order.shopId,
+          });
+          // Ne pas bloquer la réponse, juste logger l'erreur
+        }
+      }
 
       // Créer une notification si le statut a changé
       if (oldStatus !== newStatus) {
@@ -682,7 +737,7 @@ router.put(
         order: updatedOrder
       });
     } catch (error) {
-      console.error('Erreur modification statut:', error);
+      logger.error('Erreur modification statut', { error: error.message, orderId: req.params?.id });
       res.status(500).json({ message: 'Erreur serveur' });
     }
   }
@@ -694,6 +749,15 @@ router.put(
  */
 router.get('/:id/download-confirmation', authenticate, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de commande invalide'
+      });
+    }
+
     const order = await prisma.order.findUnique({
       where: { id: req.params.id },
       include: {
@@ -713,12 +777,10 @@ router.get('/:id/download-confirmation', authenticate, async (req, res) => {
       });
     }
 
-    // Vérifier les permissions
-    if (req.user.role === 'CLIENT' && order.shopId !== req.user.shop?.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Accès refusé',
-      });
+    const canAccess = req.user.role === 'ADMIN' ||
+      (req.context?.accessibleShops || []).some(s => s.id === order.shopId);
+    if (!canAccess) {
+      return res.status(403).json({ success: false, message: 'Accès refusé' });
     }
 
     // Générer le numéro de commande s'il n'existe pas
@@ -750,6 +812,340 @@ router.get('/:id/download-confirmation', authenticate, async (req, res) => {
     });
   }
 });
+
+/**
+ * POST /api/orders/export
+ * Export d'une commande en Excel/CSV
+ * SECURITY: Duplicate route removed - see route below for actual implementation
+ */
+// REMOVED: Duplicate route definition - keeping the more complete version below
+// router.post('/export', authenticate, requireClient, async (req, res) => {
+//   // ... removed (duplicate) ...
+// });
+
+/**
+ * POST /api/orders/export
+ * Export d'une commande en Excel
+ * SECURITY: Validates product IDs to prevent unauthorized access
+ * RISK: Without validation, users could export data for products they shouldn't access
+ */
+router.post('/export', authenticate, requireClient, async (req, res) => {
+  try {
+    // SECURITY: Validate input to prevent injection and ensure data integrity
+    // RISK: Missing validation could allow invalid data or unauthorized access
+    const { items, orderDate, deliveryDate, pricingType } = req.body;
+    
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Aucun produit à exporter'
+      });
+    }
+
+    // SECURITY: Validate product IDs are UUIDs to prevent injection
+    // RISK: Invalid IDs could cause database errors or expose information
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const productIds = items.map(item => item.productId).filter(Boolean);
+    
+    if (productIds.some(id => !uuidRegex.test(id))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Format d\'ID produit invalide'
+      });
+    }
+
+    // Récupérer les produits - only visible and active products for clients
+    // SECURITY: Filter by isVisibleToClients to prevent access to hidden products
+    // RISK: Without this filter, clients could see products they shouldn't access
+    const products = await prisma.product.findMany({
+      where: { 
+        id: { in: productIds },
+        isActive: true,
+        isVisibleToClients: true
+      }
+    });
+    
+    // SECURITY: Verify all requested products were found and are accessible
+    // RISK: Missing products could indicate unauthorized access attempt
+    if (products.length !== productIds.length) {
+      logger.warn('Tentative d\'export de produits non accessibles', {
+        userId: req.user.id,
+        requestedIds: productIds,
+        foundIds: products.map(p => p.id)
+      });
+      return res.status(403).json({
+        success: false,
+        message: 'Certains produits ne sont pas accessibles'
+      });
+    }
+
+    // Créer le fichier Excel
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Commande');
+
+    // En-têtes
+    worksheet.columns = [
+      { header: 'Libellé produit', key: 'name', width: 30 },
+      { header: 'Origine', key: 'origin', width: 15 },
+      { header: 'Conditionnement', key: 'packaging', width: 15 },
+      { header: 'Présentation', key: 'presentation', width: 15 },
+      { header: 'Qté demandée', key: 'quantity', width: 12 },
+      { header: 'Qté promo', key: 'quantityPromo', width: 12 },
+      { header: 'Qté commandée', key: 'quantityOrdered', width: 12 },
+      { header: 'Prix HT', key: 'priceHT', width: 12 },
+      { header: 'Total HT', key: 'totalHT', width: 12 }
+    ];
+
+    // Données
+    items.forEach(item => {
+      const product = products.find(p => p.id === item.productId);
+      if (product) {
+        const priceHT = pricingType === 'T2' && product.priceHT_T2 
+          ? product.priceHT_T2 
+          : product.priceHT;
+        const totalHT = priceHT * (item.quantity || 0);
+        
+        worksheet.addRow({
+          name: product.name,
+          origin: product.origin || '-',
+          packaging: product.packaging || product.unit || '-',
+          presentation: product.presentation || '-',
+          quantity: item.quantity || 0,
+          quantityPromo: item.quantityPromo || 0,
+          quantityOrdered: item.quantityOrdered || item.quantity || 0,
+          priceHT: priceHT.toFixed(2),
+          totalHT: totalHT.toFixed(2)
+        });
+      }
+    });
+
+    // Style de l'en-tête
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF28A745' }
+    };
+    worksheet.getRow(1).font = { ...worksheet.getRow(1).font, color: { argb: 'FFFFFFFF' } };
+
+    // Générer le buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=commande-${orderDate || new Date().toISOString().split('T')[0]}.xlsx`);
+    res.send(buffer);
+  } catch (error) {
+    // SECURITY: Log error without exposing sensitive data
+    // RISK: Error details could expose system internals
+    logger.error('Erreur export commande', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de l\'export'
+    });
+  }
+});
+
+/**
+ * POST /api/orders/aggregate
+ * Agrège les commandes NEW par date de livraison
+ * ADMIN uniquement
+ */
+router.post(
+  '/aggregate',
+  authenticate,
+  requireRole('ADMIN'),
+  async (req, res) => {
+    try {
+      const { deliveryDate } = req.body;
+      
+      if (!deliveryDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Date de livraison requise'
+        });
+      }
+      
+      // Récupérer toutes les commandes NEW pour cette date
+      const orders = await prisma.order.findMany({
+        where: {
+          status: 'NEW',
+          deliveryDate: new Date(deliveryDate)
+        },
+        include: {
+          items: {
+            include: {
+              product: true
+            }
+          },
+          shop: {
+            select: {
+              id: true,
+              name: true,
+              city: true
+            }
+          }
+        }
+      });
+      
+      if (orders.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Aucune commande NEW trouvée pour cette date'
+        });
+      }
+      
+      // Agréger
+      const aggregated = await aggregateOrdersByDateAndProduct(orders, new Date(deliveryDate));
+      
+      // Mettre à jour statuts des commandes
+      await prisma.order.updateMany({
+        where: {
+          id: { in: orders.map(o => o.id) }
+        },
+        data: {
+          status: 'AGGREGATED',
+          aggregatedAt: new Date()
+        }
+      });
+      
+      logger.info('Commandes agrégées', {
+        ordersCount: orders.length,
+        deliveryDate,
+        aggregatedItemsCount: aggregated.length
+      });
+      
+      res.json({
+        success: true,
+        data: {
+          ordersCount: orders.length,
+          aggregatedItems: aggregated,
+          deliveryDate
+        }
+      });
+    } catch (error) {
+      logger.error('Erreur agrégation commandes', { error: error.message });
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de l\'agrégation',
+        error: error.message
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/orders/aggregated/create-supplier-order
+ * Crée une commande fournisseur depuis les commandes agrégées
+ * ADMIN uniquement
+ */
+router.post(
+  '/aggregated/create-supplier-order',
+  authenticate,
+  requireRole('ADMIN'),
+  async (req, res) => {
+    try {
+      const { supplierId, deliveryDate } = req.body;
+      
+      if (!supplierId || !deliveryDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'supplierId et deliveryDate requis'
+        });
+      }
+      
+      // Récupérer commandes AGGREGATED pour cette date
+      const orders = await prisma.order.findMany({
+        where: {
+          status: 'AGGREGATED',
+          deliveryDate: new Date(deliveryDate)
+        },
+        include: {
+          items: {
+            include: {
+              product: {
+                include: {
+                  supplierProducts: {
+                    include: { supplier: true }
+                  }
+                }
+              }
+            }
+          },
+          shop: {
+            select: {
+              id: true,
+              name: true,
+              city: true
+            }
+          }
+        }
+      });
+      
+      if (orders.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Aucune commande AGGREGATED trouvée pour cette date'
+        });
+      }
+      
+      // Agréger
+      const aggregated = await aggregateOrdersByDateAndProduct(orders, new Date(deliveryDate));
+      
+      // Grouper par fournisseur
+      const grouped = await groupBySupplier(aggregated);
+      
+      if (!grouped[supplierId]) {
+        return res.status(404).json({
+          success: false,
+          message: `Aucune commande agrégée pour ce fournisseur (ID: ${supplierId})`
+        });
+      }
+      
+      // Créer commande fournisseur
+      const supplierOrder = await createSupplierOrderFromAggregation(
+        grouped[supplierId],
+        supplierId,
+        req.user.id
+      );
+      
+      // Mettre à jour statuts des commandes liées
+      const orderIds = grouped[supplierId].items.flatMap(item => 
+        item.orders.map(o => o.orderId)
+      );
+      
+      await prisma.order.updateMany({
+        where: {
+          id: { in: orderIds }
+        },
+        data: {
+          status: 'SUPPLIER_ORDERED',
+          supplierOrderId: supplierOrder.id
+        }
+      });
+      
+      logger.info('Commande fournisseur créée depuis agrégation', {
+        supplierOrderId: supplierOrder.id,
+        supplierId,
+        ordersCount: orderIds.length
+      });
+      
+      res.json({
+        success: true,
+        data: supplierOrder
+      });
+    } catch (error) {
+      logger.error('Erreur création commande fournisseur', { error: error.message });
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la création',
+        error: error.message
+      });
+    }
+  }
+);
 
 module.exports = router;
 

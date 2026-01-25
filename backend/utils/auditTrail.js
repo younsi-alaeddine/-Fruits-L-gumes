@@ -20,21 +20,43 @@ const createAuditLog = async (data) => {
 
     // Sauvegarder dans la base de données
     try {
+      // Vérifier que l'utilisateur existe si userId est fourni (pour éviter les erreurs de clé étrangère)
+      let validUserId = data.userId || null;
+      if (validUserId) {
+        try {
+          const userExists = await prisma.user.findUnique({
+            where: { id: validUserId },
+            select: { id: true }
+          });
+          if (!userExists) {
+            logger.warn('Utilisateur non trouvé pour audit log', { userId: validUserId });
+            validUserId = null; // Ne pas insérer avec un userId invalide
+          }
+        } catch (userCheckError) {
+          logger.warn('Erreur vérification utilisateur pour audit log', { 
+            error: userCheckError.message,
+            userId: validUserId 
+          });
+          validUserId = null;
+        }
+      }
+
       await prisma.auditLog.create({
         data: {
           action: data.action, // CREATE, UPDATE, DELETE, etc.
           entity: data.entity, // Product, Order, User, etc.
           entityId: data.entityId,
-          userId: data.userId || null,
+          userId: validUserId,
           changes: data.changes ? JSON.stringify(data.changes) : null,
           ip: data.ip || null,
           userAgent: data.userAgent || null,
         },
       });
     } catch (dbError) {
-      // Si la table n'existe pas encore (migration non effectuée), continuer avec juste les logs
-      logger.warn('Table AuditLog non disponible, utilisation des logs uniquement', {
+      // Si la table n'existe pas encore (migration non effectuée) ou erreur de contrainte, continuer avec juste les logs
+      logger.warn('Table AuditLog non disponible ou erreur, utilisation des logs uniquement', {
         error: dbError.message,
+        code: dbError.code,
       });
     }
   } catch (error) {

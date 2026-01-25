@@ -3,7 +3,11 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const logger = require('../utils/logger');
 const { calculateOrderItemTotals, calculateOrderTotals } = require('../utils/calculations');
-const { notifyNewOrder } = require('../utils/notificationService');
+const { notifyNewOrder, notifyAdmins } = require('../utils/notificationService');
+
+// Phase 2: prevent silent failures of the job (ops visibility)
+// We throttle alerts to avoid spamming admins on repeated failures.
+const lastFailureAlertAtByRecurringOrderId = new Map();
 
 /**
  * Exécuter les commandes récurrentes qui sont prêtes
@@ -24,15 +28,17 @@ async function processRecurringOrders() {
         shop: true,
         items: {
           include: {
-            product: {
-              where: {
-                isActive: true,
-                isVisibleToClients: true,
-              },
-            },
+            product: true,
           },
         },
       },
+    });
+    
+    // Filtrer les produits inactifs après récupération
+    recurringOrders.forEach(order => {
+      order.items = order.items.filter(item => 
+        item.product.isActive && item.product.isVisibleToClients
+      );
     });
 
     logger.info(`Traitement de ${recurringOrders.length} commande(s) récurrente(s)`);
@@ -129,6 +135,24 @@ async function processRecurringOrders() {
         logger.info(`Commande récurrente ${recurringOrder.id} exécutée - Commande ${order.id} créée`);
       } catch (error) {
         logger.error(`Erreur traitement commande récurrente ${recurringOrder.id}:`, { error: error.message });
+
+        // Phase 2: notify admins on recurring order failures (was silent beyond logs)
+        const nowTs = Date.now();
+        const lastTs = lastFailureAlertAtByRecurringOrderId.get(recurringOrder.id) || 0;
+        const THROTTLE_MS = 60 * 60 * 1000; // 1h
+        if (nowTs - lastTs > THROTTLE_MS) {
+          lastFailureAlertAtByRecurringOrderId.set(recurringOrder.id, nowTs);
+          try {
+            await notifyAdmins(
+              'SYSTEM_ALERT',
+              'Échec commande récurrente',
+              `La commande récurrente #${recurringOrder.id.substring(0, 8)} a échoué. Vérifiez les logs.`,
+              { recurringOrderId: recurringOrder.id }
+            );
+          } catch (alertErr) {
+            logger.warn('Impossible de notifier les admins (échec commande récurrente)', { error: alertErr.message });
+          }
+        }
       }
     }
   } catch (error) {
@@ -137,15 +161,17 @@ async function processRecurringOrders() {
 }
 
 // Exécuter toutes les heures
-cron.schedule('0 * * * *', () => {
-  logger.info('Exécution du job de commandes récurrentes...');
-  processRecurringOrders();
-});
+// DÉSACTIVÉ TEMPORAIREMENT - cause des crashs EADDRINUSE
+// cron.schedule('0 * * * *', () => {
+//   logger.info('Exécution du job de commandes récurrentes...');
+//   processRecurringOrders();
+// });
 
 // Exécuter immédiatement au démarrage (en développement)
-if (process.env.NODE_ENV !== 'production') {
-  logger.info('Exécution initiale du job de commandes récurrentes...');
-  processRecurringOrders();
-}
+// DÉSACTIVÉ TEMPORAIREMENT
+// if (process.env.NODE_ENV !== 'production') {
+//   logger.info('Exécution initiale du job de commandes récurrentes...');
+//   processRecurringOrders();
+// }
 
 module.exports = { processRecurringOrders };

@@ -51,10 +51,81 @@ code {
     monospace;
 }
 
+/* ========== STYLES DES BOUTONS ========== */
+
 button {
   cursor: pointer;
   font-family: inherit;
   transition: var(--transition);
+  font-weight: 500;
+}
+
+/* Bouton primaire */
+.btn-primary {
+  background: linear-gradient(to right, #28a745, #34ce57);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2);
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(to right, #218838, #28a745);
+  box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(40, 167, 69, 0.2);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Bouton secondaire */
+.btn-secondary {
+  background: #ffffff;
+  color: #4b5563;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  border: 2px solid #d1d5db;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Bouton danger */
+.btn-danger {
+  background: linear-gradient(to right, #dc3545, #c82333);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2);
+  transition: all 0.3s ease;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: linear-gradient(to right, #c82333, #bd2130);
+  box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 input, select, textarea {
@@ -79,4 +150,321 @@ input, select, textarea {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* ========== CLASSES UTILITAIRES PERSONNALISÉES ========== */
+
+/* Effet glassmorphism */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Effet de gradient animé */
+.gradient-animate {
+  background: linear-gradient(-45deg, #28a745, #34ce57, #218838, #28a745);
+  background-size: 400% 400%;
+  animation: gradient 15s ease infinite;
+}
+
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Effet shimmer pour les cartes de chargement */
+.shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Hover lift effect pour cartes */
+.card-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+/* Effet de brillance au hover */
+.shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.shine::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  transition: left 0.5s;
+}
+
+.shine:hover::before {
+  left: 100%;
+}
+
+/* Boutons avec effet de vague */
+.btn-ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-ripple::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.btn-ripple:active::after {
+  width: 300px;
+  height: 300px;
+}
+
+/* Badge pulsant */
+.badge-pulse {
+  animation: pulse-badge 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+/* ========== STYLES DES CHAMPS DE SAISIE (DESIGN MODERNE) ========== */
+
+/* Style de base pour TOUS les inputs, textarea et select */
+input, textarea, select {
+  width: 100%;
+  padding: 0.875rem 1.125rem;
+  border: 1.5px solid #e5e7eb; /* Bordure subtile mais visible */
+  border-radius: 0.75rem; /* Plus arrondi */
+  background: linear-gradient(to bottom, #ffffff, #fafbfc); /* Léger gradient */
+  font-size: 0.9375rem;
+  color: #1f2937;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9); /* Relief subtil */
+}
+
+/* Inputs désactivés */
+input:disabled, textarea:disabled, select:disabled {
+  background: linear-gradient(to bottom, #f9fafb, #f3f4f6);
+  border-color: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* Hover effect - Plus moderne */
+input:hover:not(:disabled), 
+textarea:hover:not(:disabled), 
+select:hover:not(:disabled) {
+  border-color: #d1d5db;
+  box-shadow: 
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  transform: translateY(-1px); /* Léger lift */
+}
+
+/* Focus amélioré - Anneau vert moderne */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: #28a745;
+  background: #ffffff;
+  box-shadow: 
+    0 0 0 4px rgba(40, 167, 69, 0.08), /* Anneau vert doux */
+    0 4px 12px rgba(40, 167, 69, 0.15), /* Ombre verte */
+    inset 0 1px 2px rgba(255, 255, 255, 1);
+  transform: translateY(-1px);
+}
+
+/* Classe .input pour compatibilité avec le code existant */
+.input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #d1d5db;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+  font-size: 0.9375rem;
+  color: #1f2937;
+  transition: all 0.3s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.input:hover:not(:disabled) {
+  border-color: #9ca3af;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 
+    0 0 0 3px rgba(40, 167, 69, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.input:disabled {
+  background-color: #f3f4f6;
+  border-color: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Style pour les inputs avec erreur */
+.input-error, input.error {
+  border-color: #ef4444;
+  background-color: #fef2f2;
+}
+
+.input-error:focus, input.error:focus {
+  border-color: #dc2626;
+  box-shadow: 
+    0 0 0 3px rgba(239, 68, 68, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Style pour les inputs avec succès */
+.input-success, input.success {
+  border-color: #10b981;
+  background-color: #f0fdf4;
+}
+
+.input-success:focus, input.success:focus {
+  border-color: #059669;
+  box-shadow: 
+    0 0 0 3px rgba(16, 185, 129, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Placeholder plus visible et moderne */
+input::placeholder, 
+textarea::placeholder {
+  color: #6b7280; /* Gris plus foncé pour meilleur contraste */
+  opacity: 0.9;
+  font-weight: 400;
+}
+
+input:focus::placeholder,
+textarea:focus::placeholder {
+  color: #9ca3af; /* Plus clair au focus */
+  opacity: 0.6;
+  transition: all 0.3s ease;
+}
+
+/* Select avec flèche personnalisée et style moderne */
+select {
+  appearance: none;
+  background-image: 
+    linear-gradient(to bottom, #ffffff, #fafbfc),
+    url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat, no-repeat;
+  background-position: 0 0, right 0.875rem center;
+  background-size: 100% 100%, 1.125rem;
+  padding-right: 2.75rem;
+  cursor: pointer;
+}
+
+select:hover:not(:disabled) {
+  background-image: 
+    linear-gradient(to bottom, #ffffff, #fafbfc),
+    url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23374151' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+}
+
+select:focus {
+  background-image: 
+    linear-gradient(to bottom, #ffffff, #ffffff),
+    url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2328a745' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+}
+
+/* Bordure gradient */
+.border-gradient {
+  border: 2px solid transparent;
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
+
+.border-gradient-primary {
+  background-image: 
+    linear-gradient(white, white),
+    linear-gradient(135deg, #28a745, #34ce57);
+}
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+/* Effet de texte gradient */
+.text-gradient {
+  background: linear-gradient(135deg, #28a745, #34ce57);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Transition douce pour tous les éléments interactifs */
+a, button, .clickable {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Effet hover pour les liens */
+a:hover {
+  transform: translateX(2px);
+}
+
+/* Badge avec animation de notification */
+.notification-badge {
+  animation: notification-pop 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes notification-pop {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
 }

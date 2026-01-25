@@ -1,0 +1,4 @@
+Nom;Contact;Email;Telephone;Adresse;SIRET;TVA;Conditions Paiement;Délai Livraison;Notes
+Fruits Bio SARL;Jean Dupont;contact@fruitsbio.fr;0123456789;123 rue des Vergers 75001 Paris;12345678900012;FR12345678901;Net 30 jours;2;Fournisseur principal fruits
+Légumes du Sud;Marie Martin;contact@legumesdusud.fr;0198765432;45 avenue du Marché 13001 Marseille;98765432100023;FR98765432100;Net 45 jours;3;Spécialiste légumes méditerranéens
+Primeurs Express;Pierre Durand;info@primeursexpress.fr;0145678901;78 boulevard Saint-Michel 33000 Bordeaux;45678901200034;FR45678901200;Net 15 jours;1;Livraison rapide

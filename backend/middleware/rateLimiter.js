@@ -11,8 +11,9 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    // Ignorer le rate limiting pour /api/auth en développement (déjà protégé par authLimiter)
-    return process.env.NODE_ENV !== 'production' && req.path.startsWith('/api/auth');
+    // Mounted at /api/ so path is e.g. /auth/login. Production: never skip (bank-level).
+    if (process.env.NODE_ENV === 'production') return false;
+    return req.path.startsWith('/auth');
   },
 });
 

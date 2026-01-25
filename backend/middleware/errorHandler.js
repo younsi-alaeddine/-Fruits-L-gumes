@@ -4,10 +4,9 @@ const logger = require('../utils/logger');
  * Middleware global de gestion des erreurs
  */
 const errorHandler = (err, req, res, next) => {
-  // Log de l'erreur
   logger.error('Erreur API', {
     error: err.message,
-    stack: err.stack,
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
     path: req.path,
     method: req.method,
     ip: req.ip,
@@ -58,7 +57,15 @@ const errorHandler = (err, req, res, next) => {
     return res.status(401).json({
       success: false,
       message: 'Token expiré',
-      expiredAt: err.expiredAt,
+    });
+  }
+
+  // Erreur de parsing JSON (body-parser)
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({
+      success: false,
+      message: 'Format de données invalide. Veuillez vérifier que les données sont correctement formatées en JSON.',
+      error: process.env.NODE_ENV !== 'production' ? err.message : undefined,
     });
   }
 
@@ -81,19 +88,19 @@ const errorHandler = (err, req, res, next) => {
     return res.status(err.status).json({
       success: false,
       message: err.message,
-      ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
     });
   }
 
   // Erreur serveur par défaut
   res.status(500).json({
     success: false,
-    message: process.env.NODE_ENV === 'production' 
-      ? 'Erreur serveur interne' 
+    message: process.env.NODE_ENV === 'production'
+      ? 'Erreur serveur interne'
       : err.message,
-    ...(process.env.NODE_ENV === 'development' && { 
+    ...(process.env.NODE_ENV !== 'production' && {
       stack: err.stack,
-      error: err 
+      error: err,
     }),
   });
 };

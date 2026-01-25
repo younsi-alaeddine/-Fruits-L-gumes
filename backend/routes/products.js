@@ -43,6 +43,148 @@ const upload = multer({
 });
 
 /**
+ * GET /api/products/search
+ * Recherche améliorée par nom, gencod, barcode
+ */
+router.get('/search', authenticate, async (req, res) => {
+  try {
+    const { q, gencod, barcode } = req.query;
+    
+    if (gencod || barcode) {
+      // Recherche par code
+      const product = await prisma.product.findFirst({
+        where: {
+          OR: [
+            gencod ? { gencod: { contains: gencod, mode: 'insensitive' } } : {},
+            barcode ? { barcode: { contains: barcode } } : {}
+          ],
+          isActive: true,
+          isVisibleToClients: true
+        },
+        include: {
+          customCategory: true,
+          customSubCategory: true
+        }
+      });
+      
+      if (product) {
+        return res.json({
+          success: true,
+          product
+        });
+      }
+    }
+    
+    // Recherche par nom/libellé
+    if (q) {
+      const products = await prisma.product.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { gencod: { contains: q, mode: 'insensitive' } },
+            { barcode: { contains: q } }
+          ],
+          isActive: true,
+          isVisibleToClients: true
+        },
+        include: {
+          customCategory: true,
+          customSubCategory: true
+        },
+        take: 50
+      });
+      
+      return res.json({
+        success: true,
+        products
+      });
+    }
+    
+    res.json({
+      success: false,
+      message: 'Paramètre de recherche manquant'
+    });
+  } catch (error) {
+    logger.error('Erreur recherche produits', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la recherche'
+    });
+  }
+});
+
+/**
+ * GET /api/products/search
+ * Recherche améliorée par nom, gencod, barcode
+ */
+router.get('/search', authenticate, async (req, res) => {
+  try {
+    const { q, gencod, barcode } = req.query;
+    
+    if (gencod || barcode) {
+      // Recherche par code
+      const product = await prisma.product.findFirst({
+        where: {
+          OR: [
+            gencod ? { gencod: { contains: gencod, mode: 'insensitive' } } : {},
+            barcode ? { barcode: { contains: barcode } } : {}
+          ],
+          isActive: true,
+          isVisibleToClients: true
+        },
+        include: {
+          customCategory: true,
+          customSubCategory: true
+        }
+      });
+      
+      if (product) {
+        return res.json({
+          success: true,
+          product
+        });
+      }
+    }
+    
+    // Recherche par nom/libellé
+    if (q) {
+      const products = await prisma.product.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { gencod: { contains: q, mode: 'insensitive' } },
+            { barcode: { contains: q } }
+          ],
+          isActive: true,
+          isVisibleToClients: true
+        },
+        include: {
+          customCategory: true,
+          customSubCategory: true
+        },
+        take: 50
+      });
+      
+      return res.json({
+        success: true,
+        products
+      });
+    }
+    
+    res.json({
+      success: false,
+      message: 'Paramètre de recherche manquant'
+    });
+  } catch (error) {
+    logger.error('Erreur recherche produits', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la recherche'
+    });
+  }
+});
+
+/**
  * GET /api/products/categories
  * Liste des catégories et sous-catégories disponibles
  */
@@ -85,10 +227,22 @@ router.get('/', authenticate, async (req, res) => {
         where.name = { contains: req.query.search, mode: 'insensitive' };
       }
       if (req.query.category && req.query.category !== 'TOUS') {
-        where.category = req.query.category;
+        // Détecter si c'est un UUID (nouvelle gestion de catégories) ou un enum (ancienne)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(req.query.category)) {
+          where.categoryId = req.query.category;
+        } else {
+          where.category = req.query.category;
+        }
       }
       if (req.query.subCategory && req.query.subCategory !== 'TOUS') {
-        where.subCategory = req.query.subCategory;
+        // Détecter si c'est un UUID (nouvelle gestion) ou un string (ancienne)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(req.query.subCategory)) {
+          where.subCategoryId = req.query.subCategory;
+        } else {
+          where.subCategory = req.query.subCategory;
+        }
       }
       if (req.query.isActive !== undefined) {
         where.isActive = req.query.isActive === 'true';
@@ -146,11 +300,32 @@ router.get('/', authenticate, async (req, res) => {
       take: limit,
     });
 
-    // Calculer les prix TTC pour chaque produit
-    const productsWithTTC = products.map(product => ({
-      ...product,
-      priceTTC: Math.round(product.priceHT * (1 + product.tvaRate / 100) * 100) / 100
-    }));
+    // Stock agrégé magasins (ShopStock) pour Admin
+    let stockByProduct = {};
+    if (isAdmin && products.length > 0) {
+      const productIds = products.map((p) => p.id);
+      const agg = await prisma.shopStock.groupBy({
+        by: ['productId'],
+        where: { productId: { in: productIds } },
+        _sum: { quantity: true },
+      });
+      agg.forEach((row) => {
+        stockByProduct[row.productId] = Number(row._sum.quantity) || 0;
+      });
+    }
+
+    const tva = (r) => (r != null && !Number.isNaN(r)) ? r : 5.5;
+    const ht = (p) => (p != null && !Number.isNaN(p)) ? p : 0;
+
+    const productsWithTTC = products.map((product) => {
+      const priceHT = ht(product.priceHT);
+      const tvaRate = tva(product.tvaRate);
+      return {
+        ...product,
+        priceTTC: Math.round(priceHT * (1 + tvaRate / 100) * 100) / 100,
+        totalShopStock: isAdmin ? (stockByProduct[product.id] ?? 0) : undefined,
+      };
+    });
 
     // Format de réponse paginée
     const totalPages = Math.ceil(total / limit);
@@ -184,6 +359,15 @@ router.get('/', authenticate, async (req, res) => {
  */
 router.get('/:id', authenticate, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID de produit invalide' 
+      });
+    }
+
     const product = await prisma.product.findUnique({
       where: { id: req.params.id }
     });
@@ -536,6 +720,15 @@ router.put(
  */
 router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID de produit invalide' 
+      });
+    }
+
     const { softDelete } = require('../utils/softDelete');
     
     const product = await prisma.product.findUnique({
@@ -601,6 +794,15 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
  */
 router.put('/:id/toggle-visibility', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID de produit invalide' 
+      });
+    }
+
     const { id } = req.params;
     const product = await prisma.product.findUnique({ where: { id } });
 

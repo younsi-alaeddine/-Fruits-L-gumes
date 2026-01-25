@@ -14,8 +14,12 @@ router.get('/', authenticate, async (req, res) => {
     const where = {};
     
     // Les clients voient seulement leurs commandes récurrentes
-    if (req.user.role === 'CLIENT' && req.user.shop) {
-      where.shopId = req.user.shop.id;
+    if (req.user.role === 'CLIENT') {
+      const activeShopId = req.context?.activeShopId;
+      if (!activeShopId) {
+        return res.status(400).json({ success: false, message: 'Magasin non trouvé' });
+      }
+      where.shopId = activeShopId;
     }
 
     const recurringOrders = await prisma.recurringOrder.findMany({
@@ -87,7 +91,10 @@ router.get('/:id', authenticate, async (req, res) => {
     }
 
     // Vérifier les permissions
-    if (req.user.role === 'CLIENT' && recurringOrder.shopId !== req.user.shop?.id) {
+    if (
+      req.user.role === 'CLIENT' &&
+      !(req.context?.accessibleShops || []).some(s => s.id === recurringOrder.shopId)
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Accès refusé',
@@ -130,7 +137,7 @@ router.post(
       }
 
       const { name, frequency, dayOfWeek, dayOfMonth, items } = req.body;
-      const shopId = req.user.shop?.id;
+      const shopId = req.context?.activeShopId;
 
       if (!shopId) {
         return res.status(400).json({
@@ -251,7 +258,7 @@ router.put('/:id', authenticate, requireClient, async (req, res) => {
     }
 
     // Vérifier les permissions
-    if (recurringOrder.shopId !== req.user.shop?.id) {
+    if (!(req.context?.accessibleShops || []).some(s => s.id === recurringOrder.shopId)) {
       return res.status(403).json({
         success: false,
         message: 'Accès refusé',
@@ -330,7 +337,7 @@ router.delete('/:id', authenticate, requireClient, async (req, res) => {
     }
 
     // Vérifier les permissions
-    if (recurringOrder.shopId !== req.user.shop?.id) {
+    if (!(req.context?.accessibleShops || []).some(s => s.id === recurringOrder.shopId)) {
       return res.status(403).json({
         success: false,
         message: 'Accès refusé',
@@ -360,6 +367,16 @@ router.delete('/:id', authenticate, requireClient, async (req, res) => {
  */
 router.post('/:id/run', authenticate, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    // RISK: Invalid UUID format could cause database errors or expose information
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de commande récurrente invalide'
+      });
+    }
+
     const recurringOrder = await prisma.recurringOrder.findUnique({
       where: { id: req.params.id },
       include: {
@@ -376,6 +393,20 @@ router.post('/:id/run', authenticate, async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Commande récurrente non trouvée',
+      });
+    }
+
+    const canAccess = req.user.role === 'ADMIN' ||
+      (req.context?.accessibleShops || []).some(s => s.id === recurringOrder.shopId);
+    if (!canAccess) {
+      logger.warn('Tentative d\'exécution de commande récurrente non autorisée', {
+        userId: req.user.id,
+        recurringOrderId: req.params.id,
+        orderShopId: recurringOrder.shopId,
+      });
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé',
       });
     }
 

@@ -23,10 +23,32 @@ router.get('/', authenticate, async (req, res) => {
             isActive: true,
             deletedAt: null,
           },
+          include: {
+            _count: {
+              select: {
+                products: {
+                  where: { deletedAt: null }
+                }
+              }
+            }
+          },
           orderBy: {
             order: 'asc',
           },
         },
+        _count: {
+          select: {
+            products: {
+              where: { deletedAt: null }
+            },
+            subCategories: {
+              where: {
+                isActive: true,
+                deletedAt: null
+              }
+            }
+          }
+        }
       },
       orderBy: {
         order: 'asc',

@@ -3,6 +3,7 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const prisma = require('../config/database');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const logger = require('../utils/logger');
 
 // Toutes les routes nécessitent l'authentification et le rôle ADMIN
 router.use(authenticate);
@@ -72,10 +73,20 @@ router.get('/', async (req, res) => {
       isLowStock: product.stock <= product.stockAlert
     }));
 
-    res.json({ products: productsWithAlert });
+    res.json({ 
+      success: true,
+      products: productsWithAlert 
+    });
   } catch (error) {
-    console.error('Erreur récupération stock:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération stock', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -127,9 +138,21 @@ router.put(
   ],
   async (req, res) => {
     try {
+      // SECURITY: Validate UUID format to prevent injection attacks
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(req.params.id)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'ID de produit invalide' 
+        });
+      }
+
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+        return res.status(400).json({ 
+          success: false,
+          errors: errors.array() 
+        });
       }
 
       const { stock, stockAlert } = req.body;
@@ -189,9 +212,21 @@ router.post(
   ],
   async (req, res) => {
     try {
+      // SECURITY: Validate UUID format to prevent injection attacks
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(req.params.id)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'ID de produit invalide' 
+        });
+      }
+
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+        return res.status(400).json({ 
+          success: false,
+          errors: errors.array() 
+        });
       }
 
       const { quantity, reason } = req.body;
@@ -219,6 +254,7 @@ router.post(
       });
 
       res.json({
+        success: true,
         message: `Stock ajusté de ${quantity > 0 ? '+' : ''}${quantity}`,
         product: {
           ...updatedProduct,
@@ -226,8 +262,16 @@ router.post(
         }
       });
     } catch (error) {
-      console.error('Erreur ajustement stock:', error);
-      res.status(500).json({ message: 'Erreur serveur' });
+      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+      logger.error('Erreur ajustement stock', { 
+        error: error.message,
+        productId: req.params.id,
+        userId: req.user?.id 
+      });
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur serveur' 
+      });
     }
   }
 );
@@ -260,12 +304,173 @@ router.get('/alerts', async (req, res) => {
     const lowStockProducts = products.filter(p => p.stock <= p.stockAlert);
 
     res.json({ 
+      success: true,
       count: lowStockProducts.length,
       products: lowStockProducts.map(p => ({ ...p, isLowStock: true }))
     });
   } catch (error) {
-    console.error('Erreur récupération alertes stock:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération alertes stock', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
+  }
+});
+
+/**
+ * GET /api/stock/stats
+ * Statistiques globales des stocks
+ */
+router.get('/stats', async (req, res) => {
+  try {
+    const products = await prisma.product.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        stock: true,
+        stockAlert: true,
+        category: true
+      }
+    });
+
+    const stats = {
+      totalProducts: products.length,
+      lowStockCount: products.filter(p => p.stock <= p.stockAlert).length,
+      outOfStockCount: products.filter(p => p.stock === 0).length,
+      totalStockValue: products.reduce((sum, p) => sum + p.stock, 0),
+      categoriesBreakdown: {}
+    };
+
+    // Breakdown par catégorie
+    products.forEach(p => {
+      if (!stats.categoriesBreakdown[p.category]) {
+        stats.categoriesBreakdown[p.category] = {
+          total: 0,
+          lowStock: 0,
+          outOfStock: 0
+        };
+      }
+      stats.categoriesBreakdown[p.category].total++;
+      if (p.stock <= p.stockAlert) stats.categoriesBreakdown[p.category].lowStock++;
+      if (p.stock === 0) stats.categoriesBreakdown[p.category].outOfStock++;
+    });
+
+    res.json({ success: true, stats });
+  } catch (error) {
+    logger.error('Erreur stats stock', { error: error.message });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+/**
+ * GET /api/stock/movements/:productId
+ * Historique des mouvements de stock pour un produit
+ */
+router.get('/movements/:productId', async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { limit = 50 } = req.query;
+
+    // Récupérer les OrderItems comme mouvements de stock
+    const movements = await prisma.orderItem.findMany({
+      where: { productId },
+      select: {
+        id: true,
+        quantity: true,
+        priceUnit: true,
+        createdAt: true,
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+            shop: {
+              select: {
+                name: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: parseInt(limit)
+    });
+
+    const formattedMovements = movements.map(m => ({
+      id: m.id,
+      type: 'ORDER',
+      quantity: -m.quantity, // Négatif car c'est une sortie
+      date: m.createdAt,
+      reference: m.order.orderNumber,
+      shop: m.order.shop?.name,
+      notes: `Commande ${m.order.status}`
+    }));
+
+    res.json({ 
+      success: true,
+      movements: formattedMovements,
+      count: formattedMovements.length
+    });
+  } catch (error) {
+    logger.error('Erreur mouvements stock', { error: error.message });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+/**
+ * POST /api/stock/inventory
+ * Créer un inventaire physique
+ */
+router.post('/inventory', [
+  body('items').isArray().withMessage('Items requis'),
+  body('items.*.productId').notEmpty().withMessage('Product ID requis'),
+  body('items.*.physicalCount').isFloat({ min: 0 }).withMessage('Comptage invalide'),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { items, notes } = req.body;
+    const results = [];
+
+    for (const item of items) {
+      const product = await prisma.product.findUnique({
+        where: { id: item.productId }
+      });
+
+      if (!product) continue;
+
+      const difference = item.physicalCount - product.stock;
+
+      await prisma.product.update({
+        where: { id: item.productId },
+        data: { stock: item.physicalCount }
+      });
+
+      results.push({
+        productId: item.productId,
+        productName: product.name,
+        previousStock: product.stock,
+        newStock: item.physicalCount,
+        difference,
+        notes: item.notes
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Inventaire effectué : ${results.length} produits`,
+      results
+    });
+  } catch (error) {
+    logger.error('Erreur inventaire', { error: error.message });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 

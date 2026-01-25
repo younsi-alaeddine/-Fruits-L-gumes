@@ -86,15 +86,22 @@ router.get('/unread-count', authenticate, async (req, res) => {
  */
 router.put('/:id/read', authenticate, async (req, res) => {
   try {
+    // Prisma `update` ne supporte que des champs uniques dans `where`.
+    // On vérifie d'abord la propriété (anti-IDOR), puis on met à jour par `id`.
+    const existing = await prisma.notification.findFirst({
+      where: { id: req.params.id, userId: req.user.id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification non trouvée',
+      });
+    }
+
     const notification = await prisma.notification.update({
-      where: {
-        id: req.params.id,
-        userId: req.user.id, // S'assurer que la notification appartient à l'utilisateur
-      },
-      data: {
-        read: true,
-        readAt: new Date(),
-      },
+      where: { id: req.params.id },
+      data: { read: true, readAt: new Date() },
     });
 
     res.json({
@@ -146,12 +153,20 @@ router.put('/read-all', authenticate, async (req, res) => {
  */
 router.delete('/:id', authenticate, async (req, res) => {
   try {
-    await prisma.notification.delete({
-      where: {
-        id: req.params.id,
-        userId: req.user.id, // S'assurer que la notification appartient à l'utilisateur
-      },
+    // Prisma `delete` ne supporte que des champs uniques dans `where`.
+    const existing = await prisma.notification.findFirst({
+      where: { id: req.params.id, userId: req.user.id },
+      select: { id: true },
     });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification non trouvée',
+      });
+    }
+
+    await prisma.notification.delete({ where: { id: req.params.id } });
 
     res.json({
       success: true,

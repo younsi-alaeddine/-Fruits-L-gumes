@@ -1,0 +1,5 @@
+Nom;SKU;Description;Catégorie;Sous-catégorie;Unité;Prix HT;Prix HT T2;TVA (%);Stock;Origine;Packaging;Présentation;GENCOD;Code-barres;Actif
+Pomme Golden;FRUIT-POMME-001;Pomme Golden de qualité supérieure;Fruits;Pommes;kg;2.50;2.30;5.5;100;France;Carton 5kg;Vrac;3700123456789;123456;Oui
+Tomate Grappe;LEG-TOMATE-001;Tomate grappe fraîche;Légumes;Tomates;kg;3.20;3.00;5.5;80;Espagne;Barquette 1kg;Emballé;3700987654321;987654;Oui
+Banane;FRUIT-BANANE-001;Banane Cavendish;Fruits;Fruits exotiques;kg;1.80;1.70;5.5;150;Côte d'Ivoire;Carton 18kg;Vrac;;BAN001;Oui
+Salade Verte;LEG-SALADE-001;Salade verte fraîche;Légumes;Salades;pièce;1.50;1.40;5.5;50;France;Sachet;Emballé;3700456789123;SAL001;Oui

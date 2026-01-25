@@ -4,6 +4,7 @@ const { body, validationResult } = require('express-validator');
 const bcrypt = require('bcrypt');
 const prisma = require('../config/database');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const logger = require('../utils/logger');
 
 /**
  * @swagger
@@ -21,7 +22,15 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
  */
 router.get('/', authenticate, requireAdmin, async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const total = await prisma.shop.count();
+
     const shops = await prisma.shop.findMany({
+      skip,
+      take: limit,
       include: {
         user: {
           select: {
@@ -40,10 +49,30 @@ router.get('/', authenticate, requireAdmin, async (req, res) => {
       orderBy: { name: 'asc' }
     });
 
-    res.json({ shops });
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    res.json({ 
+      success: true,
+      shops,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+      }
+    });
   } catch (error) {
-    console.error('Erreur récupération magasins:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération magasins', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -72,6 +101,15 @@ router.get('/', authenticate, requireAdmin, async (req, res) => {
  */
 router.get('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID de magasin invalide' 
+      });
+    }
+
     const shop = await prisma.shop.findUnique({
       where: { id: req.params.id },
       include: {
@@ -98,13 +136,27 @@ router.get('/:id', authenticate, requireAdmin, async (req, res) => {
     });
 
     if (!shop) {
-      return res.status(404).json({ message: 'Magasin non trouvé' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Magasin non trouvé' 
+      });
     }
 
-    res.json({ shop });
+    res.json({ 
+      success: true,
+      shop 
+    });
   } catch (error) {
-    console.error('Erreur récupération magasin:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération magasin', { 
+      error: error.message,
+      shopId: req.params.id,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -216,12 +268,20 @@ router.post(
       });
 
       res.status(201).json({
+        success: true,
         message: 'Magasin créé avec succès',
         shop: user.shop
       });
     } catch (error) {
-      console.error('Erreur création magasin:', error);
-      res.status(500).json({ message: 'Erreur lors de la création du magasin' });
+      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+      logger.error('Erreur création magasin', { 
+        error: error.message,
+        userId: req.user?.id 
+      });
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur lors de la création du magasin' 
+      });
     }
   }
 );
@@ -256,7 +316,10 @@ router.put(
       });
 
       if (!shop) {
-        return res.status(404).json({ message: 'Magasin non trouvé' });
+        return res.status(404).json({ 
+          success: false,
+          message: 'Magasin non trouvé' 
+        });
       }
 
       const { name, address, city, postalCode, phone, userName, email, userPhone } = req.body;
@@ -311,12 +374,21 @@ router.put(
       });
 
       res.json({
+        success: true,
         message: 'Magasin modifié avec succès',
         shop: updatedShop
       });
     } catch (error) {
-      console.error('Erreur modification magasin:', error);
-      res.status(500).json({ message: 'Erreur lors de la modification du magasin' });
+      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+      logger.error('Erreur modification magasin', { 
+        error: error.message,
+        shopId: req.params.id,
+        userId: req.user?.id 
+      });
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur lors de la modification du magasin' 
+      });
     }
   }
 );
@@ -327,6 +399,15 @@ router.put(
  */
 router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID de magasin invalide' 
+      });
+    }
+
     const shop = await prisma.shop.findUnique({
       where: { id: req.params.id },
       include: {
@@ -339,12 +420,16 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
     });
 
     if (!shop) {
-      return res.status(404).json({ message: 'Magasin non trouvé' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Magasin non trouvé' 
+      });
     }
 
     // Vérifier s'il y a des commandes
     if (shop._count.orders > 0) {
       return res.status(400).json({ 
+        success: false,
         message: 'Impossible de supprimer un magasin avec des commandes. Désactivez-le plutôt.' 
       });
     }
@@ -354,10 +439,21 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
       where: { id: req.params.id }
     });
 
-    res.json({ message: 'Magasin supprimé avec succès' });
+    res.json({ 
+      success: true,
+      message: 'Magasin supprimé avec succès' 
+    });
   } catch (error) {
-    console.error('Erreur suppression magasin:', error);
-    res.status(500).json({ message: 'Erreur lors de la suppression du magasin' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur suppression magasin', { 
+      error: error.message,
+      shopId: req.params.id,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur lors de la suppression du magasin' 
+    });
   }
 });
 

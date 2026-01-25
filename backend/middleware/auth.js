@@ -36,7 +36,7 @@ const authenticate = async (req, res, next) => {
         email: true,
         name: true,
         role: true,
-        shop: true
+        emailVerified: true,
       }
     });
 
@@ -51,7 +51,72 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    // Vérifier que l'email est vérifié (sauf pour les admins)
+    if (user.role === 'CLIENT' && !user.emailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Votre adresse email n\'a pas été vérifiée. Veuillez vérifier votre boîte mail et cliquer sur le lien de confirmation.',
+        requiresEmailVerification: true
+      });
+    }
+
+    // Construire le contexte multi-tenant / multi-magasin
+    // - ADMIN: accès global
+    // - Autres rôles: accès via memberships / shop_memberships
+    let memberships = [];
+    let accessibleShops = [];
+    let organizationIds = [];
+
+    if (user.role !== 'ADMIN') {
+      memberships = await prisma.membership.findMany({
+        where: {
+          userId: user.id,
+          status: 'ACTIVE'
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          shopMemberships: {
+            where: { status: 'ACTIVE' },
+            select: { shopId: true }
+          }
+        }
+      });
+      organizationIds = memberships.map(m => m.organizationId);
+
+      const shopIds = memberships.flatMap(m => m.shopMemberships.map(sm => sm.shopId));
+      if (shopIds.length > 0) {
+        accessibleShops = await prisma.shop.findMany({
+          where: { id: { in: shopIds }, organizationId: { in: organizationIds } },
+          select: { id: true, name: true, city: true, organizationId: true }
+        });
+      }
+    } else {
+      // Admin: peut voir tous les shops (supervision)
+      accessibleShops = await prisma.shop.findMany({
+        select: { id: true, name: true, city: true, organizationId: true }
+      });
+      organizationIds = Array.from(new Set(accessibleShops.map(s => s.organizationId).filter(Boolean)));
+    }
+
+    const requestedShopId = req.headers['x-shop-id'] ? String(req.headers['x-shop-id']) : null;
+    const activeShopId =
+      requestedShopId && accessibleShops.some(s => s.id === requestedShopId)
+        ? requestedShopId
+        : (accessibleShops[0]?.id || null);
+
+    const activeOrganizationId =
+      activeShopId ? (accessibleShops.find(s => s.id === activeShopId)?.organizationId || null) :
+      (organizationIds[0] || null);
+
     req.user = user;
+    req.context = {
+      memberships,
+      organizationIds,
+      accessibleShops,
+      activeShopId,
+      activeOrganizationId
+    };
     next();
   } catch (error) {
     logger.warn('Erreur d\'authentification', {
@@ -60,10 +125,9 @@ const authenticate = async (req, res, next) => {
     });
     
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
         message: 'Token expiré',
-        expiredAt: error.expiredAt,
       });
     }
     

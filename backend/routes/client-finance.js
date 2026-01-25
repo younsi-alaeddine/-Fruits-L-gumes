@@ -10,7 +10,7 @@ const logger = require('../utils/logger');
  */
 router.get('/summary', authenticate, requireClient, async (req, res) => {
   try {
-    const shopId = req.user.shop?.id;
+    const shopId = req.context?.activeShopId;
 
     if (!shopId) {
       return res.status(400).json({
@@ -117,7 +117,7 @@ router.get('/summary', authenticate, requireClient, async (req, res) => {
  */
 router.get('/invoices', authenticate, requireClient, async (req, res) => {
   try {
-    const shopId = req.user.shop?.id;
+    const shopId = req.context?.activeShopId;
 
     if (!shopId) {
       return res.status(400).json({
@@ -188,7 +188,7 @@ router.get('/invoices', authenticate, requireClient, async (req, res) => {
  */
 router.get('/payments', authenticate, requireClient, async (req, res) => {
   try {
-    const shopId = req.user.shop?.id;
+    const shopId = req.context?.activeShopId;
 
     if (!shopId) {
       return res.status(400).json({

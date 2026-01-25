@@ -8,6 +8,8 @@ const bcrypt = require('bcrypt');
 
 // Routes d'audit
 router.use('/audit-logs', require('./audit-logs'));
+// Routes sécurité
+router.use('/security', require('./security'));
 
 /**
  * @swagger
@@ -174,8 +176,49 @@ router.get('/dashboard', authenticate, requireAdmin, async (req, res) => {
       }))
     });
   } catch (error) {
-    console.error('Erreur dashboard:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur dashboard admin', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
+  }
+});
+
+/**
+ * GET /api/admin/stats/counts
+ * Totaux globaux pour le tableau de bord ADMIN (clients, magasins, users, commandes, produits, commission).
+ */
+router.get('/stats/counts', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const [totalShops, totalUsers, totalOrders, totalProducts, commissionAgg] = await Promise.all([
+      prisma.shop.count(),
+      prisma.user.count(),
+      prisma.order.count(),
+      prisma.product.count({ where: { isActive: true } }),
+      prisma.order.aggregate({
+        where: { status: 'LIVREE' },
+        _sum: { totalMargin: true },
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      counts: {
+        clients: totalShops,
+        stores: totalShops,
+        users: totalUsers,
+        orders: totalOrders,
+        products: totalProducts,
+        commission: Number(commissionAgg._sum.totalMargin) || 0,
+      },
+    });
+  } catch (error) {
+    logger.error('Erreur stats/counts admin', { error: error.message, userId: req.user?.id });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 
@@ -235,10 +278,20 @@ router.get('/stats/sales-evolution', authenticate, requireAdmin, async (req, res
       new Date(a.date) - new Date(b.date)
     );
 
-    res.json({ evolution });
+    res.json({ 
+      success: true,
+      evolution 
+    });
   } catch (error) {
-    console.error('Erreur récupération évolution ventes:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération évolution ventes', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -326,10 +379,20 @@ router.get('/stats/top-products', authenticate, requireAdmin, async (req, res) =
       };
     });
 
-    res.json({ topProducts: topProductsWithNames });
+    res.json({ 
+      success: true,
+      topProducts: topProductsWithNames 
+    });
   } catch (error) {
-    console.error('Erreur récupération top produits:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération top produits', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -407,10 +470,20 @@ router.get('/stats/category-distribution', authenticate, requireAdmin, async (re
       totalRevenue
     }));
 
-    res.json({ distribution });
+    res.json({ 
+      success: true,
+      distribution 
+    });
   } catch (error) {
-    console.error('Erreur récupération répartition catégories:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération répartition catégories', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -490,10 +563,182 @@ router.get('/totals-by-shop', authenticate, requireAdmin, async (req, res) => {
       };
     });
 
-    res.json({ totals: totals.sort((a, b) => b.totalTTC - a.totalTTC) });
+    res.json({ 
+      success: true,
+      totals: totals.sort((a, b) => b.totalTTC - a.totalTTC) 
+    });
   } catch (error) {
-    console.error('Erreur récupération totaux par magasin:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération totaux par magasin', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/clients:
+ *   get:
+ *     summary: Liste des clients (magasins) avec pagination
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Numéro de page
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Nombre d'éléments par page
+ *     responses:
+ *       200:
+ *         description: Liste des clients récupérée avec succès
+ *       403:
+ *         description: Accès refusé - Admin requis
+ */
+router.get('/clients', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Récupérer les magasins (clients) avec leurs utilisateurs
+    const total = await prisma.shop.count();
+
+    const shops = await prisma.shop.findMany({
+      skip,
+      take: limit,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            role: true,
+            createdAt: true
+          }
+        },
+        _count: {
+          select: {
+            orders: true
+          }
+        }
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    // Calculer les statistiques pour chaque client
+    const shopsWithStats = await Promise.all(
+      shops.map(async (shop) => {
+        try {
+          // Total des commandes
+          const totalOrders = await prisma.order.count({
+            where: { shopId: shop.id }
+          });
+
+          // Total des commandes du mois
+          const firstDayOfMonth = new Date();
+          firstDayOfMonth.setDate(1);
+          firstDayOfMonth.setHours(0, 0, 0, 0);
+
+          const ordersThisMonth = await prisma.order.aggregate({
+            where: {
+              shopId: shop.id,
+              createdAt: { gte: firstDayOfMonth },
+              status: { not: 'ANNULEE' }
+            },
+            _sum: {
+              totalTTC: true,
+              totalHT: true
+            },
+            _count: {
+              id: true
+            }
+          });
+
+          return {
+            id: shop.id,
+            name: shop.name || 'Nom non défini',
+            city: shop.city || '',
+            address: shop.address || '',
+            phone: shop.phone || '',
+            email: shop.contactEmail || shop.user?.email || '', // Utiliser contactEmail ou l'email de l'utilisateur
+            user: shop.user || null, // Gérer le cas où l'utilisateur a été supprimé
+            totalOrders: totalOrders || 0,
+            ordersThisMonth: {
+              count: ordersThisMonth._count.id || 0,
+              totalHT: Number(ordersThisMonth._sum.totalHT) || 0,
+              totalTTC: Number(ordersThisMonth._sum.totalTTC) || 0
+            },
+            createdAt: shop.createdAt,
+            updatedAt: shop.updatedAt
+          };
+        } catch (shopError) {
+          // Si une erreur survient pour un shop spécifique, logger et retourner des valeurs par défaut
+          logger.warn('Erreur calcul statistiques pour shop', { 
+            shopId: shop.id,
+            error: shopError.message 
+          });
+          return {
+            id: shop.id,
+            name: shop.name || 'Nom non défini',
+            city: shop.city || '',
+            address: shop.address || '',
+            phone: shop.phone || '',
+            email: shop.contactEmail || shop.user?.email || '', // Utiliser contactEmail ou l'email de l'utilisateur
+            user: shop.user || null,
+            totalOrders: 0,
+            ordersThisMonth: {
+              count: 0,
+              totalHT: 0,
+              totalTTC: 0
+            },
+            createdAt: shop.createdAt,
+            updatedAt: shop.updatedAt,
+            error: 'Erreur lors du calcul des statistiques'
+          };
+        }
+      })
+    );
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({
+      success: true,
+      clients: shopsWithStats,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+      }
+    });
+  } catch (error) {
+    logger.error('Erreur récupération clients', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur',
+      error: error.message
+    });
   }
 });
 
@@ -541,14 +786,10 @@ router.get('/users', authenticate, requireAdmin, async (req, res) => {
         email: true,
         phone: true,
         role: true,
-        createdAt: true,
-        shop: {
-          select: {
-            id: true,
-            name: true,
-            city: true
-          }
-        }
+        emailVerified: true,
+        isApproved: true,
+        approvedAt: true,
+        createdAt: true
       },
       orderBy: {
         createdAt: 'desc'
@@ -570,8 +811,14 @@ router.get('/users', authenticate, requireAdmin, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erreur récupération utilisateurs:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    logger.error('Erreur récupération utilisateurs', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -623,8 +870,16 @@ router.put(
         user: updatedUser
       });
     } catch (error) {
-      console.error('Erreur modification utilisateur:', error);
-      res.status(500).json({ message: 'Erreur serveur' });
+      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+      logger.error('Erreur modification utilisateur', { 
+        error: error.message,
+        targetUserId: req.params.id,
+        userId: req.user?.id 
+      });
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur serveur' 
+      });
     }
   }
 );
@@ -660,11 +915,155 @@ router.put(
         message: 'Mot de passe réinitialisé avec succès'
       });
     } catch (error) {
-      console.error('Erreur réinitialisation mot de passe:', error);
-      res.status(500).json({ message: 'Erreur serveur' });
+      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+      logger.error('Erreur réinitialisation mot de passe', { 
+        error: error.message,
+        targetUserId: req.params.id,
+        userId: req.user?.id 
+      });
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur serveur' 
+      });
     }
   }
 );
+
+/**
+ * PUT /api/admin/users/:id/approve
+ * Approuver un utilisateur (nécessite l'approbation admin)
+ */
+router.put('/users/:id/approve', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID utilisateur invalide' 
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, email: true, name: true, isApproved: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Utilisateur non trouvé' 
+      });
+    }
+
+    if (user.isApproved) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Cet utilisateur est déjà approuvé' 
+      });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.params.id },
+      data: {
+        isApproved: true,
+        approvedBy: req.user.id,
+        approvedAt: new Date()
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isApproved: true,
+        approvedAt: true
+      }
+    });
+
+    // Envoyer un email de notification à l'utilisateur
+    try {
+      const emailService = require('../utils/emailService');
+      await emailService.sendAccountApprovedEmail(user.email, user.name);
+    } catch (emailError) {
+      logger.warn('Erreur envoi email d\'approbation', { error: emailError.message });
+      // Ne pas bloquer l'approbation si l'email échoue
+    }
+
+    logger.info('Utilisateur approuvé', {
+      userId: user.id,
+      email: user.email,
+      approvedBy: req.user.id
+    });
+
+    res.json({
+      success: true,
+      message: 'Utilisateur approuvé avec succès',
+      user: updatedUser
+    });
+  } catch (error) {
+    logger.error('Erreur approbation utilisateur', { 
+      error: error.message,
+      targetUserId: req.params.id,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
+  }
+});
+
+/**
+ * PUT /api/admin/users/:id/reject
+ * Rejeter un utilisateur (retirer l'approbation)
+ */
+router.put('/users/:id/reject', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID utilisateur invalide' 
+      });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.params.id },
+      data: {
+        isApproved: false,
+        approvedBy: null,
+        approvedAt: null
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isApproved: true
+      }
+    });
+
+    logger.info('Approbation utilisateur retirée', {
+      userId: req.params.id,
+      rejectedBy: req.user.id
+    });
+
+    res.json({
+      success: true,
+      message: 'Approbation retirée avec succès',
+      user: updatedUser
+    });
+  } catch (error) {
+    logger.error('Erreur rejet utilisateur', { 
+      error: error.message,
+      targetUserId: req.params.id,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
+  }
+});
 
 /**
  * DELETE /api/admin/users/:id
@@ -672,6 +1071,15 @@ router.put(
  */
 router.delete('/users/:id', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'ID utilisateur invalide' 
+      });
+    }
+
     await prisma.user.update({
       where: { id: req.params.id },
       data: { deletedAt: new Date() }
@@ -682,8 +1090,15 @@ router.delete('/users/:id', authenticate, requireAdmin, async (req, res) => {
       message: 'Utilisateur supprimé avec succès'
     });
   } catch (error) {
-    console.error('Erreur suppression utilisateur:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    logger.error('Erreur suppression utilisateur', { 
+      error: error.message,
+      targetUserId: req.params.id,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -755,8 +1170,15 @@ router.get('/export/orders', authenticate, requireAdmin, async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send('\ufeff' + csv); // BOM pour Excel
   } catch (error) {
-    console.error('Erreur export commandes:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur export commandes', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -813,8 +1235,15 @@ router.get('/export/statistics', authenticate, requireAdmin, async (req, res) =>
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send('\ufeff' + csv);
   } catch (error) {
-    console.error('Erreur export statistiques:', error);
-    res.status(500).json({ message: 'Erreur serveur' });
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur export statistiques', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
+    res.status(500).json({ 
+      success: false,
+      message: 'Erreur serveur' 
+    });
   }
 });
 
@@ -993,7 +1422,11 @@ router.get('/preparation', authenticate, requireAdmin, async (req, res) => {
       stats
     });
   } catch (error) {
-    console.error('Erreur récupération données préparation:', error);
+    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
+    logger.error('Erreur récupération données préparation', { 
+      error: error.message,
+      userId: req.user?.id 
+    });
     res.status(500).json({
       success: false,
       message: 'Erreur serveur'

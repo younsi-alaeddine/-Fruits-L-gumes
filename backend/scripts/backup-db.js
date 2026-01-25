@@ -19,15 +19,29 @@ if (!fs.existsSync(BACKUP_DIR)) {
 }
 
 // Extraire les informations de connexion depuis DATABASE_URL
-// Format: postgresql://user:password@host:port/database
-const urlMatch = DATABASE_URL.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/);
+// Supporte les query params (ex: ?schema=public)
+let user;
+let password;
+let host;
+let port;
+let database;
 
-if (!urlMatch) {
+try {
+  const url = new URL(DATABASE_URL);
+  user = decodeURIComponent(url.username);
+  password = decodeURIComponent(url.password);
+  host = url.hostname;
+  port = url.port || '5432';
+  database = decodeURIComponent(url.pathname.replace(/^\//, ''));
+
+  if (!user || !host || !database) {
+    throw new Error('Champs manquants dans DATABASE_URL');
+  }
+} catch (err) {
   console.error('❌ Format DATABASE_URL invalide');
+  console.error(err.message);
   process.exit(1);
 }
-
-const [, user, password, host, port, database] = urlMatch;
 
 // Nom du fichier de backup avec timestamp
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');

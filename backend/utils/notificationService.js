@@ -1,6 +1,19 @@
 const prisma = require('../config/database');
 const logger = require('./logger');
 
+const formatEuro = (amount) =>
+  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
+
+let io = null;
+
+/**
+ * Initialiser Socket.io pour l'émission temps réel
+ */
+const initNotificationService = (socketIo) => {
+  io = socketIo;
+  logger.info('NotificationService: Socket.io initialisé');
+};
+
 /**
  * Créer une notification pour un utilisateur
  */
@@ -16,8 +29,10 @@ const createNotification = async (userId, type, title, message, data = null) => 
       },
     });
 
-    // Émettre un événement pour WebSocket si nécessaire
-    // TODO: Implémenter WebSocket broadcast
+    // Temps réel (si Socket.io est actif)
+    if (io) {
+      io.to(`user:${userId}`).emit('notification', notification);
+    }
     
     return notification;
   } catch (error) {
@@ -98,7 +113,7 @@ const notifyNewOrder = async (order) => {
   return notifyAdmins(
     'ORDER_NEW',
     'Nouvelle commande',
-    `Nouvelle commande de ${order.shop?.name || 'Client'} - ${order.totalTTC.toFixed(2)} €`,
+    `Nouvelle commande de ${order.shop?.name || 'Client'} - ${formatEuro(order.totalTTC)}`,
     { orderId: order.id }
   );
 };
@@ -173,7 +188,7 @@ const notifyPaymentReceived = async (payment, order) => {
       order.shop.userId,
       'PAYMENT_RECEIVED',
       'Paiement reçu',
-      `Votre paiement de ${payment.amount.toFixed(2)} € pour la commande #${order.id.substring(0, 8)} a été enregistré`,
+      `Votre paiement de ${formatEuro(payment.amount)} pour la commande #${order.id.substring(0, 8)} a été enregistré`,
       { paymentId: payment.id, orderId: order.id }
     );
   }
@@ -183,12 +198,13 @@ const notifyPaymentReceived = async (payment, order) => {
     'FINANCE',
     'PAYMENT_RECEIVED',
     'Nouveau paiement',
-    `Paiement de ${payment.amount.toFixed(2)} € reçu pour la commande #${order.id.substring(0, 8)}`,
+    `Paiement de ${formatEuro(payment.amount)} reçu pour la commande #${order.id.substring(0, 8)}`,
     { paymentId: payment.id, orderId: order.id }
   );
 };
 
 module.exports = {
+  initNotificationService,
   createNotification,
   notifyAdmins,
   notifyRole,

@@ -156,6 +156,43 @@ router.post(
  */
 router.put('/:id/read', authenticate, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    // RISK: Invalid UUID format could cause database errors or expose information
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de message invalide'
+      });
+    }
+
+    // SECURITY: Ownership check - verify message exists and belongs to user before updating
+    // RISK: Without prior check, update could fail silently or expose information
+    const messageExists = await prisma.message.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!messageExists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Message non trouvé'
+      });
+    }
+
+    // SECURITY: Ownership check - users can only mark their own received messages as read
+    // RISK: Without this check, users could mark any message as read (IDOR)
+    if (messageExists.toUserId !== req.user.id) {
+      logger.warn('Tentative de modification de message non autorisée', {
+        userId: req.user.id,
+        messageId: req.params.id,
+        messageToUserId: messageExists.toUserId
+      });
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé'
+      });
+    }
+
     const message = await prisma.message.update({
       where: {
         id: req.params.id,

@@ -5,6 +5,7 @@ const prisma = require('../config/database');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const PDFDocument = require('pdfkit');
+const { appInfo } = require('../config/appInfo');
 
 /**
  * Générer un numéro de bon de livraison unique
@@ -35,9 +36,10 @@ const generateDeliveryNotePDF = async (delivery, order, shop, driver) => {
       doc.moveDown();
       
       // Informations entreprise
-      doc.fontSize(12).text('Distribution Fruits & Légumes', { align: 'left' });
-      doc.fontSize(10).text('123 Rue des Fruits', { align: 'left' });
-      doc.fontSize(10).text('75000 Paris, France', { align: 'left' });
+      // Phase 2: make document header configurable (deploy-safe)
+      doc.fontSize(12).text(appInfo.companyName, { align: 'left' });
+      doc.fontSize(10).text(appInfo.companyAddressLine1, { align: 'left' });
+      doc.fontSize(10).text(appInfo.companyAddressLine2, { align: 'left' });
       doc.moveDown();
 
       // Numéro de bon et date
@@ -142,11 +144,15 @@ router.get('/', authenticate, async (req, res) => {
     
     const where = {};
     
-    // Les clients voient seulement leurs livraisons
-    if (req.user.role === 'CLIENT' && req.user.shop) {
+    // Les clients voient seulement leurs livraisons (magasin actif)
+    if (req.user.role === 'CLIENT') {
+      const activeShopId = req.context?.activeShopId;
+      if (!activeShopId) {
+        return res.status(400).json({ success: false, message: 'Magasin non trouvé' });
+      }
       // Récupérer d'abord les IDs des commandes du client
       const clientOrders = await prisma.order.findMany({
-        where: { shopId: req.user.shop.id },
+        where: { shopId: activeShopId },
         select: { id: true },
       });
       const orderIds = clientOrders.map(o => o.id);
@@ -385,7 +391,10 @@ router.put('/:id', authenticate, async (req, res) => {
     }
 
     // Vérifier les permissions
-    if (req.user.role === 'CLIENT' && delivery.order.shopId !== req.user.shop?.id) {
+    if (
+      req.user.role === 'CLIENT' &&
+      !(req.context?.accessibleShops || []).some(s => s.id === delivery.order.shopId)
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Accès refusé',
@@ -443,7 +452,26 @@ router.put('/:id', authenticate, async (req, res) => {
  */
 router.put('/:id/assign', authenticate, requireAdmin, async (req, res) => {
   try {
+    // SECURITY: Validate UUID format to prevent injection attacks
+    // RISK: Invalid UUID format could cause database errors or expose information
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de livraison invalide'
+      });
+    }
+
     const { driverId } = req.body;
+    
+    // SECURITY: Validate driverId is a valid UUID if provided
+    // RISK: Invalid driverId could cause database errors
+    if (driverId && !uuidRegex.test(driverId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de livreur invalide'
+      });
+    }
 
     if (!driverId) {
       return res.status(400).json({
@@ -541,7 +569,10 @@ router.get('/:id/download-note', authenticate, async (req, res) => {
     }
 
     // Vérifier les permissions
-    if (req.user.role === 'CLIENT' && delivery.order.shopId !== req.user.shop?.id) {
+    if (
+      req.user.role === 'CLIENT' &&
+      !(req.context?.accessibleShops || []).some(s => s.id === delivery.order.shopId)
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Accès refusé',
