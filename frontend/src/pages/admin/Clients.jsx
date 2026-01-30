@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { Users, Search, Plus, Edit2, Trash2, AlertCircle } from 'lucide-react'
+import { Search, Plus, Edit2, Trash2, AlertCircle } from 'lucide-react'
 import Toast from '../../components/common/Toast'
 import { useToast } from '../../hooks/useToast'
 import { getClients, createClient, updateClient, deleteClient } from '../../api/clients'
-import { format } from 'date-fns'
 
 /**
  * Page de gestion des clients - ADMIN
@@ -22,8 +21,10 @@ function AdminClients() {
     companyName: '',
     siret: '',
     address: { street: '', city: '', zipCode: '', country: 'France' },
+    contactName: '',
     contactEmail: '',
     contactPhone: '',
+    password: '',
   })
 
   useEffect(() => {
@@ -34,7 +35,24 @@ function AdminClients() {
     try {
       setLoading(true)
       const response = await getClients({ page: 1, limit: 100 })
-      setClients(response.clients || response.users || [])
+      const raw = response.shops || response.clients || response.users || []
+      const mapped = raw.map((s) => ({
+        id: s.id,
+        companyName: s.name || s.companyName,
+        siret: s.siret ?? '',
+        address: {
+          street: s.address || s.address?.street || '',
+          city: s.city || s.address?.city || '',
+          zipCode: s.postalCode || s.address?.zipCode || '',
+          country: s.address?.country || 'France',
+        },
+        contactName: s.contactPerson || s.user?.name || '',
+        contactEmail: s.contactEmail || s.user?.email || '',
+        contactPhone: s.contactPhone || s.phone || s.user?.phone || '',
+        isActive: s.isActive !== false,
+        user: s.user,
+      }))
+      setClients(mapped)
     } catch (error) {
       showError('Erreur lors du chargement des clients')
       console.error(error)
@@ -55,8 +73,10 @@ function AdminClients() {
           zipCode: client.address?.zipCode || '',
           country: client.address?.country || 'France',
         },
+        contactName: client.contactName || '',
         contactEmail: client.contactEmail || '',
         contactPhone: client.contactPhone || '',
+        password: '',
       })
     } else {
       setSelectedClient(null)
@@ -64,8 +84,10 @@ function AdminClients() {
         companyName: '',
         siret: '',
         address: { street: '', city: '', zipCode: '', country: 'France' },
+        contactName: '',
         contactEmail: '',
         contactPhone: '',
+        password: '',
       })
     }
     setModalOpen(true)
@@ -76,20 +98,60 @@ function AdminClients() {
     setSelectedClient(null)
   }
 
+  const getApiError = (error) => {
+    const d = error.response?.data
+    if (d?.message) return d.message
+    if (Array.isArray(d?.errors) && d.errors.length) return d.errors[0].msg || d.errors[0].message || String(d.errors[0])
+    if (error.message && error.message !== 'Une erreur est survenue' && error.message !== 'Impossible de contacter le serveur') return error.message
+    return selectedClient ? 'Erreur lors de la modification' : 'Erreur lors de la création'
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
       if (selectedClient) {
-        await updateClient(selectedClient.id, formData)
+        const payload = {
+          name: formData.companyName,
+          address: formData.address.street || '',
+          city: formData.address.city || '',
+          postalCode: String(formData.address.zipCode || '').slice(0, 5),
+          userName: formData.contactName,
+          email: formData.contactEmail,
+          userPhone: formData.contactPhone || undefined,
+          phone: formData.contactPhone || undefined,
+          siret: formData.siret?.trim() || null,
+        }
+        await updateClient(selectedClient.id, payload)
         showSuccess('Client modifié avec succès')
       } else {
-        await createClient(formData)
+        const postalCode = String(formData.address.zipCode || '').trim().slice(0, 5)
+        if (!/^\d{5}$/.test(postalCode)) {
+          showError('Le code postal doit contenir exactement 5 chiffres.')
+          return
+        }
+        if (!formData.password || formData.password.length < 6) {
+          showError('Le mot de passe doit contenir au moins 6 caractères.')
+          return
+        }
+        const payload = {
+          shopName: formData.companyName,
+          address: formData.address.street || '',
+          city: formData.address.city || '',
+          postalCode,
+          userName: formData.contactName,
+          email: formData.contactEmail,
+          password: formData.password,
+          phone: formData.contactPhone || undefined,
+          userPhone: formData.contactPhone || undefined,
+          ...(formData.siret?.trim() && { siret: formData.siret.trim() }),
+        }
+        await createClient(payload)
         showSuccess('Client créé avec succès')
       }
       handleCloseModal()
       loadClients()
     } catch (error) {
-      showError(selectedClient ? 'Erreur lors de la modification' : 'Erreur lors de la création')
+      showError(getApiError(error))
       console.error(error)
     }
   }
@@ -100,7 +162,8 @@ function AdminClients() {
       showSuccess('Client supprimé avec succès')
       loadClients()
     } catch (error) {
-      showError('Erreur lors de la suppression')
+      const msg = error.response?.data?.message || error.message || 'Erreur lors de la suppression'
+      showError(msg === 'Une erreur est survenue' ? 'Erreur lors de la suppression' : msg)
       console.error(error)
     }
     setDeleteDialog({ isOpen: false, clientId: null })
@@ -264,7 +327,7 @@ function AdminClients() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Adresse</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Adresse *</label>
                 <input
                   type="text"
                   placeholder="Rue"
@@ -276,19 +339,22 @@ function AdminClients() {
                     })
                   }
                   className="input mb-2"
+                  required
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="text"
-                    placeholder="Code postal"
+                    placeholder="Code postal (5 chiffres)"
                     value={formData.address.zipCode}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        address: { ...formData.address, zipCode: e.target.value },
+                        address: { ...formData.address, zipCode: e.target.value.replace(/\D/g, '').slice(0, 5) },
                       })
                     }
                     className="input"
+                    required
+                    maxLength={5}
                   />
                   <input
                     type="text"
@@ -301,10 +367,22 @@ function AdminClients() {
                       })
                     }
                     className="input"
+                    required
                   />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Nom du contact *</label>
+                  <input
+                    type="text"
+                    value={formData.contactName}
+                    onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
+                    className="input"
+                    required
+                    placeholder="Prénom et nom du contact"
+                  />
+                </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Email *</label>
                   <input
@@ -324,6 +402,20 @@ function AdminClients() {
                     className="input"
                   />
                 </div>
+                {!selectedClient && (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Mot de passe *</label>
+                    <input
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      className="input"
+                      required
+                      minLength={6}
+                      placeholder="Min. 6 caractères (connexion du client)"
+                    />
+                  </div>
+                )}
               </div>
               <div className="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200">
                 <button type="button" onClick={handleCloseModal} className="btn btn-secondary">

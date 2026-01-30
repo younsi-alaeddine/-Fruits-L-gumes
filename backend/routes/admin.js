@@ -967,7 +967,9 @@ router.put('/users/:id/approve', authenticate, requireAdmin, async (req, res) =>
       data: {
         isApproved: true,
         approvedBy: req.user.id,
-        approvedAt: new Date()
+        approvedAt: new Date(),
+        emailVerified: true,
+        emailVerifiedAt: new Date()
       },
       select: {
         id: true,

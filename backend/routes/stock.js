@@ -5,88 +5,79 @@ const prisma = require('../config/database');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
-// Toutes les routes nécessitent l'authentification et le rôle ADMIN
 router.use(authenticate);
-router.use(requireAdmin);
 
 /**
- * @swagger
- * /api/stock:
- *   get:
- *     summary: Liste des produits avec leur stock
- *     tags: [Stock]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: lowStock
- *         schema:
- *           type: boolean
- *         description: Filtrer les produits en stock faible
- *       - in: query
- *         name: category
- *         schema:
- *           type: string
- *         description: Filtrer par catégorie
- *     responses:
- *       200:
- *         description: Liste des produits récupérée avec succès
- *       403:
- *         description: Accès refusé - Admin requis
+ * GET /api/stock
+ * - ADMIN: produits avec stock global (Product.stock)
+ * - CLIENT: ShopStock des magasins accessibles (format productId, storeId, quantity, minStock)
  */
 router.get('/', async (req, res) => {
   try {
-    const { lowStock, category } = req.query;
-    const where = {};
+    if (req.user.role === 'ADMIN') {
+      const { lowStock, category } = req.query;
+      const where = {};
 
-    if (lowStock === 'true') {
-      where.stock = { lte: prisma.product.fields.stockAlert };
+      if (lowStock === 'true') {
+        where.stock = { lte: prisma.product.fields.stockAlert };
+      }
+      if (category) {
+        where.category = category;
+      }
+
+      const products = await prisma.product.findMany({
+        where: { ...where, isActive: true },
+        select: {
+          id: true,
+          name: true,
+          stock: true,
+          stockAlert: true,
+          unit: true,
+          category: true,
+          isActive: true
+        },
+        orderBy: [ { stock: 'asc' }, { name: 'asc' } ]
+      });
+
+      const productsWithAlert = products.map(p => ({
+        ...p,
+        isLowStock: p.stock <= p.stockAlert
+      }));
+
+      return res.json({ success: true, products: productsWithAlert });
     }
 
-    if (category) {
-      where.category = category;
+    // CLIENT: ShopStock des magasins accessibles
+    const shopIds = (req.context?.accessibleShops || []).map(s => s.id);
+    if (shopIds.length === 0) {
+      return res.json({ success: true, products: [] });
     }
 
-    const products = await prisma.product.findMany({
-      where: {
-        ...where,
-        isActive: true
-      },
-      select: {
-        id: true,
-        name: true,
-        stock: true,
-        stockAlert: true,
-        unit: true,
-        category: true,
-        isActive: true
-      },
-      orderBy: [
-        { stock: 'asc' },
-        { name: 'asc' }
-      ]
+    const storeId = req.query.storeId || req.query.shopId;
+    const shopFilter = storeId && shopIds.includes(storeId) ? [storeId] : shopIds;
+
+    const rows = await prisma.shopStock.findMany({
+      where: { shopId: { in: shopFilter } },
+      include: {
+        product: {
+          select: { id: true, name: true, unit: true, category: true }
+        }
+      }
     });
 
-    // Ajouter un flag pour indiquer si le stock est faible
-    const productsWithAlert = products.map(product => ({
-      ...product,
-      isLowStock: product.stock <= product.stockAlert
+    const products = rows.map(row => ({
+      productId: row.productId,
+      storeId: row.shopId,
+      quantity: row.quantity,
+      minStock: row.threshold,
+      maxStock: row.threshold,
+      product: row.product
     }));
 
-    res.json({ 
-      success: true,
-      products: productsWithAlert 
-    });
+    res.json({ success: true, products });
   } catch (error) {
-    // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
-    logger.error('Erreur récupération stock', { 
-      error: error.message,
-      userId: req.user?.id 
-    });
-    res.status(500).json({ 
-      success: false,
-      message: 'Erreur serveur' 
-    });
+    logger.error('Erreur récupération stock', { error: error.message, userId: req.user?.id });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 
@@ -132,6 +123,7 @@ router.get('/', async (req, res) => {
  */
 router.put(
   '/:id',
+  requireAdmin,
   [
     body('stock').isFloat({ min: 0 }).withMessage('Stock invalide'),
     body('stockAlert').optional().isFloat({ min: 0 }).withMessage('Seuil d\'alerte invalide'),
@@ -206,6 +198,7 @@ router.put(
  */
 router.post(
   '/:id/adjust',
+  requireAdmin,
   [
     body('quantity').isFloat().withMessage('Quantité invalide'),
     body('reason').optional().trim(),
@@ -280,7 +273,7 @@ router.post(
  * GET /api/stock/alerts
  * Produits avec stock faible
  */
-router.get('/alerts', async (req, res) => {
+router.get('/alerts', requireAdmin, async (req, res) => {
   try {
     const products = await prisma.product.findMany({
       where: {
@@ -370,7 +363,7 @@ router.get('/stats', async (req, res) => {
  * GET /api/stock/movements/:productId
  * Historique des mouvements de stock pour un produit
  */
-router.get('/movements/:productId', async (req, res) => {
+router.get('/movements/:productId', requireAdmin, async (req, res) => {
   try {
     const { productId } = req.params;
     const { limit = 50 } = req.query;
@@ -425,7 +418,7 @@ router.get('/movements/:productId', async (req, res) => {
  * POST /api/stock/inventory
  * Créer un inventaire physique
  */
-router.post('/inventory', [
+router.post('/inventory', requireAdmin, [
   body('items').isArray().withMessage('Items requis'),
   body('items.*.productId').notEmpty().withMessage('Product ID requis'),
   body('items.*.physicalCount').isFloat({ min: 0 }).withMessage('Comptage invalide'),

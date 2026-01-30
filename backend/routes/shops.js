@@ -218,7 +218,7 @@ router.post(
     body('shopName').trim().notEmpty().withMessage('Le nom du magasin est requis'),
     body('address').trim().notEmpty().withMessage('L\'adresse est requise'),
     body('city').trim().notEmpty().withMessage('La ville est requise'),
-    body('postalCode').trim().matches(/^\d{5}$/).withMessage('Code postal invalide (5 chiffres)'),
+    body('postalCode').customSanitizer((v) => String(v ?? '').trim()).matches(/^\d{5}$/).withMessage('Code postal invalide (5 chiffres)'),
     body('userName').trim().notEmpty().withMessage('Le nom de l\'utilisateur est requis'),
     body('email').isEmail().withMessage('Email invalide'),
     body('password').isLength({ min: 6 }).withMessage('Le mot de passe doit faire au moins 6 caractères'),
@@ -230,7 +230,7 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { shopName, address, city, postalCode, phone, userName, email, password, userPhone } = req.body;
+      const { shopName, address, city, postalCode, phone, userName, email, password, userPhone, siret } = req.body;
 
       // Vérifier si l'email existe déjà
       const existingUser = await prisma.user.findUnique({
@@ -244,7 +244,8 @@ router.post(
       // Hasher le mot de passe
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      // Créer l'utilisateur et son magasin
+      // Créer l'utilisateur et son magasin (User.shops = one-to-many)
+      // emailVerified + isApproved = true : client créé par admin, pas d'email de vérification ni d'approbation
       const user = await prisma.user.create({
         data: {
           name: userName,
@@ -252,36 +253,44 @@ router.post(
           password: hashedPassword,
           phone: userPhone,
           role: 'CLIENT',
-          shop: {
+          emailVerified: true,
+          isApproved: true,
+          approvedBy: req.user?.id ?? null,
+          approvedAt: new Date(),
+          shops: {
             create: {
               name: shopName,
               address,
               city,
               postalCode,
-              phone
+              phone,
+              ...(siret != null && siret !== '' && { siret: String(siret).trim() })
             }
           }
         },
         include: {
-          shop: true
+          shops: true
         }
       });
 
+      const createdShop = user.shops?.[0];
       res.status(201).json({
         success: true,
         message: 'Magasin créé avec succès',
-        shop: user.shop
+        shop: createdShop
       });
     } catch (error) {
-      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
       logger.error('Erreur création magasin', { 
         error: error.message,
+        code: error.code,
+        stack: error.stack,
         userId: req.user?.id 
       });
-      res.status(500).json({ 
-        success: false,
-        message: 'Erreur lors de la création du magasin' 
-      });
+      if (error.code === 'P2002') {
+        return res.status(400).json({ message: 'Cet email est déjà utilisé' });
+      }
+      const msg = error.message || 'Erreur lors de la création du magasin';
+      res.status(500).json({ success: false, message: msg });
     }
   }
 );
@@ -322,7 +331,7 @@ router.put(
         });
       }
 
-      const { name, address, city, postalCode, phone, userName, email, userPhone } = req.body;
+      const { name, address, city, postalCode, phone, userName, email, userPhone, siret } = req.body;
 
       // Mettre à jour le magasin
       const updateData = {};
@@ -331,6 +340,7 @@ router.put(
       if (city) updateData.city = city;
       if (postalCode) updateData.postalCode = postalCode;
       if (phone !== undefined) updateData.phone = phone;
+      if (siret !== undefined) updateData.siret = siret === '' || siret == null ? null : String(siret).trim();
 
       // Mettre à jour l'utilisateur si nécessaire
       const userUpdateData = {};
@@ -347,15 +357,19 @@ router.put(
       }
       if (userPhone !== undefined) userUpdateData.phone = userPhone;
 
-      // Mettre à jour en transaction
+      const hasUserUpdates = Object.keys(userUpdateData).length > 0;
+      const canUpdateUser = shop.userId != null && hasUserUpdates;
+
+      const updatePayload = {
+        ...updateData,
+        ...(canUpdateUser && {
+          user: { update: userUpdateData }
+        })
+      };
+
       const updatedShop = await prisma.shop.update({
         where: { id: req.params.id },
-        data: {
-          ...updateData,
-          user: {
-            update: userUpdateData
-          }
-        },
+        data: updatePayload,
         include: {
           user: {
             select: {
@@ -379,15 +393,19 @@ router.put(
         shop: updatedShop
       });
     } catch (error) {
-      // SECURITY: Use logger instead of console.error to prevent sensitive data exposure
       logger.error('Erreur modification magasin', { 
         error: error.message,
+        code: error.code,
+        stack: error.stack,
         shopId: req.params.id,
         userId: req.user?.id 
       });
+      const msg = process.env.NODE_ENV === 'production'
+        ? 'Erreur lors de la modification du magasin'
+        : (error.message || 'Erreur lors de la modification du magasin');
       res.status(500).json({ 
         success: false,
-        message: 'Erreur lors de la modification du magasin' 
+        message: msg 
       });
     }
   }

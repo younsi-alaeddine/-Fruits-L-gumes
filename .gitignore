@@ -1,1 +1,27 @@
+# Dependencies
 node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# Logs & runtime
+*.log
+backend/logs/
+backend/server.log
+backend/backups/
+
+# Build & cache
+frontend/build/
+dist/
+.cache/
+*.tsbuildinfo
+
+# Backups (dossiers de sauvegarde)
+backup-*/
+build_backup_*/
+*_backup_*/

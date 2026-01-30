@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Save, User, Bell, Lock, Camera, Shield, Check, X, Mail } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import Toast from '../../components/common/Toast'

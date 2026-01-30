@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, Phone, Mail, Package, ShoppingCart } from 'lucide-react'
-import { getStore } from '../../api/stores'
+import { getClientShop } from '../../api/stores'
 import { useToast } from '../../hooks/useToast'
 import Toast from '../../components/common/Toast'
 import { ROUTES } from '../../constants/routes'
