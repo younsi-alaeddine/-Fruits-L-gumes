@@ -17,6 +17,14 @@ function ProtectedRoute({
 }) {
   const { user, loading } = useAuth()
   const { canRead } = usePermission(requiredResource || RESOURCES.ORDERS)
+  const clientLikeRoles = new Set([
+    'CLIENT',
+    'PREPARATEUR',
+    'LIVREUR',
+    'COMMERCIAL',
+    'STOCK_MANAGER',
+    'FINANCE',
+  ])
 
   if (loading) {
     return (
@@ -35,6 +43,10 @@ function ProtectedRoute({
 
   // Vérifier le rôle requis
   if (requiredRole && user.role !== requiredRole) {
+    // Les sous-rôles métiers utilisent l'interface CLIENT
+    if (requiredRole === 'CLIENT' && clientLikeRoles.has(user.role)) {
+      return <>{children}</>
+    }
     if (requiredRoles.length > 0 && requiredRoles.includes(user.role)) {
       // Rôle autorisé
     } else if (requiredRoles.length === 0) {

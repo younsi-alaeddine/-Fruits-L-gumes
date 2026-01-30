@@ -542,7 +542,11 @@ router.post(
         });
       }
 
-      const { accessToken, refreshToken } = generateTokens(user.id);
+      const { accessToken, refreshToken } = generateTokens({
+        id: user.id,
+        role: user.role,
+        email: user.email,
+      });
 
       // Logger la connexion dans l'audit trail
       try {
@@ -565,11 +569,18 @@ router.post(
       const shops = await getAccessibleShopsForUser(user.id, user.role);
       const activeShop = shops[0] || null;
 
+      // Production security: refresh token must be httpOnly cookie (not in response body).
+      // Also set CSRF token cookie to protect /refresh.
+      setRefreshCookie(res, refreshToken);
+      const csrfToken = crypto.randomBytes(32).toString('hex');
+      setCsrfCookie(res, csrfToken);
+
       res.json({
         success: true,
         message: 'Connexion réussie',
         accessToken,
-        refreshToken,
+        csrfToken,
+        ...(process.env.NODE_ENV !== 'production' ? { refreshToken } : {}),
         user: {
           id: user.id,
           name: user.name,
@@ -996,8 +1007,9 @@ router.post('/refresh', authLimiter, async (req, res) => {
       });
     }
 
+    const userId = decoded.id || decoded.userId;
     const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
+      where: { id: userId },
       select: { id: true, email: true, name: true, role: true },
     });
     if (!user) {
@@ -1007,7 +1019,11 @@ router.post('/refresh', authLimiter, async (req, res) => {
       });
     }
 
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user.id);
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens({
+      id: user.id,
+      role: user.role,
+      email: user.email,
+    });
     const newCsrf = crypto.randomBytes(32).toString('hex');
     setRefreshCookie(res, newRefreshToken);
     setCsrfCookie(res, newCsrf);

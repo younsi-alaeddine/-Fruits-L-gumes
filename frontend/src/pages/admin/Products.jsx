@@ -40,12 +40,15 @@ function AdminProducts() {
     unit: 'kg',
     priceHT: '',
     priceHT_T2: '',
-    tva: '5.5',
+    tvaRate: '5.5',
     sku: '',
     photoUrl: '',
-    origine: '',
+    origin: '',
     packaging: '',
     presentation: '',
+    margin: '',
+    cessionPrice: '',
+    pvc: '',
     gencod: '',
     barcode: '',
     stock: '',
@@ -58,7 +61,8 @@ function AdminProducts() {
   const [subCategories, setSubCategories] = useState([])
   const [loadingCategories, setLoadingCategories] = useState(false)
 
-  const units = ['kg', 'pièce', 'botte', 'tête', 'botte', 'kg (cagette)']
+  // Doit correspondre à l'enum backend Unit: kg, caisse, piece, botte
+  const units = ['kg', 'caisse', 'piece', 'botte']
 
   useEffect(() => {
     loadProducts()
@@ -154,8 +158,18 @@ function AdminProducts() {
         subCategoryId: subCategoryId,
         unit: product.unit || 'kg',
         priceHT: product.priceHT?.toString() || '',
-        tva: product.tva?.toString() || '5.5',
+        priceHT_T2: product.priceHT_T2?.toString() || '',
+        tvaRate: (product.tvaRate ?? 5.5).toString(),
         sku: product.sku || '',
+        origin: product.origin || '',
+        packaging: product.packaging || '',
+        presentation: product.presentation || '',
+        margin: product.margin?.toString() || '',
+        cessionPrice: product.cessionPrice?.toString() || '',
+        pvc: product.pvc?.toString() || '',
+        gencod: product.gencod || '',
+        barcode: product.barcode || '',
+        stock: product.stock?.toString() || '',
         isActive: product.isActive !== undefined ? product.isActive : true,
       })
       
@@ -173,12 +187,15 @@ function AdminProducts() {
         unit: 'kg',
         priceHT: '',
         priceHT_T2: '',
-        tva: '5.5',
+        tvaRate: '5.5',
         sku: '',
         photoUrl: '',
-        origine: '',
+        origin: '',
         packaging: '',
         presentation: '',
+        margin: '',
+        cessionPrice: '',
+        pvc: '',
         gencod: '',
         barcode: '',
         stock: '',
@@ -201,14 +218,17 @@ function AdminProducts() {
       // Validation des prix
       const priceHT = parseFloat(formData.priceHT) || 0
       const priceHT_T2 = parseFloat(formData.priceHT_T2) || 0
-      const tva = parseFloat(formData.tva) || 5.5
+      const tvaRate = parseFloat(formData.tvaRate) || 5.5
       const stock = parseInt(formData.stock) || 0
+      const margin = formData.margin !== '' ? (parseFloat(formData.margin) || 0) : ''
+      const cessionPrice = formData.cessionPrice !== '' ? (parseFloat(formData.cessionPrice) || 0) : ''
+      const pvc = formData.pvc !== '' ? (parseFloat(formData.pvc) || 0) : ''
 
       if (priceHT < 0 || priceHT_T2 < 0) {
         showError('Les prix ne peuvent pas être négatifs')
         return
       }
-      if (tva < 0 || tva > 100) {
+      if (tvaRate < 0 || tvaRate > 100) {
         showError('Le taux de TVA doit être entre 0 et 100%')
         return
       }
@@ -225,7 +245,7 @@ function AdminProducts() {
       // Ajouter les valeurs numériques converties
       productData.set('priceHT', priceHT)
       productData.set('priceHT_T2', priceHT_T2)
-      productData.set('tva', tva)
+      productData.set('tvaRate', tvaRate)
       productData.set('stock', stock)
 
       // Ajouter la photo si elle existe
@@ -233,12 +253,27 @@ function AdminProducts() {
         productData.append('photo', photoFile)
       }
 
+      // Normaliser les champs numériques et noms attendus par le backend
       if (selectedProduct) {
+        productData.set('priceHT', priceHT)
+        productData.set('priceHT_T2', priceHT_T2)
+        productData.set('tvaRate', tvaRate)
+        productData.set('stock', stock)
+        if (margin !== '') productData.set('margin', margin)
+        if (cessionPrice !== '') productData.set('cessionPrice', cessionPrice)
+        if (pvc !== '') productData.set('pvc', pvc)
         await apiClient.put(`/products/${selectedProduct.id}`, productData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         })
         showSuccess('Produit modifié avec succès')
       } else {
+        productData.set('priceHT', priceHT)
+        productData.set('priceHT_T2', priceHT_T2)
+        productData.set('tvaRate', tvaRate)
+        productData.set('stock', stock)
+        if (margin !== '') productData.set('margin', margin)
+        if (cessionPrice !== '') productData.set('cessionPrice', cessionPrice)
+        if (pvc !== '') productData.set('pvc', pvc)
         await apiClient.post('/products', productData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         })
@@ -276,11 +311,14 @@ function AdminProducts() {
         'Unité': product.unit,
         'Prix HT': product.priceHT?.toFixed(2) || '0.00',
         'Prix HT T2': product.priceHT_T2?.toFixed(2) || '',
-        'TVA (%)': product.tva || '5.5',
+        'TVA (%)': product.tvaRate ?? '5.5',
         'Stock': product.stock || '0',
-        'Origine': product.origine || '',
+        'Origine': product.origin || '',
         'Packaging': product.packaging || '',
         'Présentation': product.presentation || '',
+        'Marge (%)': product.margin ?? '',
+        'Prix de cession': product.cessionPrice ?? '',
+        'PVC': product.pvc ?? '',
         'GENCOD': product.gencod || '',
         'Code-barres': product.barcode || '',
         'Actif': product.isActive ? 'Oui' : 'Non',
@@ -316,7 +354,7 @@ function AdminProducts() {
       product.description?.toLowerCase().includes(search) ||
       product.gencod?.toLowerCase().includes(search) ||
       product.barcode?.toLowerCase().includes(search) ||
-      product.origine?.toLowerCase().includes(search)
+      product.origin?.toLowerCase().includes(search)
     )
   })
 
@@ -722,8 +760,8 @@ function AdminProducts() {
                   TVA (%) *
                 </label>
                 <select
-                  value={formData.tva}
-                  onChange={(e) => setFormData({ ...formData, tva: e.target.value })}
+                  value={formData.tvaRate}
+                  onChange={(e) => setFormData({ ...formData, tvaRate: e.target.value })}
                   className="input"
                   required
                 >
@@ -801,36 +839,98 @@ function AdminProducts() {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Origine
                   </label>
-                  <input
-                    type="text"
-                    value={formData.origine}
-                    onChange={(e) => setFormData({ ...formData, origine: e.target.value })}
+                  <select
+                    value={formData.origin}
+                    onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
                     className="input"
-                    placeholder="ex: France, Espagne..."
-                  />
+                  >
+                    <option value="">Non renseigné</option>
+                    <option value="FRANCE">France</option>
+                    <option value="ESPAGNE">Espagne</option>
+                    <option value="MAROC">Maroc</option>
+                    <option value="PORTUGAL">Portugal</option>
+                    <option value="ITALIE">Italie</option>
+                    <option value="BELGIQUE">Belgique</option>
+                    <option value="PAYS_BAS">Pays-Bas</option>
+                    <option value="AUTRE">Autre</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Packaging
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={formData.packaging}
                     onChange={(e) => setFormData({ ...formData, packaging: e.target.value })}
                     className="input"
-                    placeholder="ex: Carton 5kg, Barquette..."
-                  />
+                  >
+                    <option value="">Non renseigné</option>
+                    <option value="KG">KG</option>
+                    <option value="UC">UC</option>
+                    <option value="BAR">BAR</option>
+                    <option value="SAC">SAC</option>
+                    <option value="PCE">PCE</option>
+                    <option value="FIL">FIL</option>
+                    <option value="BOTTE">BOTTE</option>
+                    <option value="CAISSE">CAISSE</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Présentation
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={formData.presentation}
                     onChange={(e) => setFormData({ ...formData, presentation: e.target.value })}
                     className="input"
-                    placeholder="ex: Vrac, Emballé..."
+                  >
+                    <option value="">Non renseigné</option>
+                    <option value="PCE">PCE</option>
+                    <option value="SAC">SAC</option>
+                    <option value="BAR">BAR</option>
+                    <option value="KGS">KGS</option>
+                    <option value="FIL">FIL</option>
+                    <option value="BOTTE">BOTTE</option>
+                    <option value="CAISSE">CAISSE</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Marge (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.margin}
+                    onChange={(e) => setFormData({ ...formData, margin: e.target.value })}
+                    className="input"
+                    placeholder="ex: 12.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Prix de cession (€)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.cessionPrice}
+                    onChange={(e) => setFormData({ ...formData, cessionPrice: e.target.value })}
+                    className="input"
+                    placeholder="ex: 1.20"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    PVC (€)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.pvc}
+                    onChange={(e) => setFormData({ ...formData, pvc: e.target.value })}
+                    className="input"
+                    placeholder="ex: 2.99"
                   />
                 </div>
                 <div>

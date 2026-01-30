@@ -1,9 +1,15 @@
+// Load environment variables from .env when present (dev / simple VPS setups).
+// In production, secrets should be injected by the process manager / platform.
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 const clientRoutes = require('./routes/clientRoutes');
-const authRoutes = require('./routes/authRoutes');
+// NOTE: `routes/auth.js` contient le set de routes complet attendu par le frontend
+// (/login, /register, /verify-email, /refresh avec CSRF/cookies, etc.)
+const authRoutes = require('./routes/auth');
 const notificationsRoutes = require('./routes/notifications');
 const shopsRoutes = require('./routes/shops');
 const adminRoutes = require('./routes/admin');
@@ -33,9 +39,18 @@ const avatarRoutes = require('./routes/avatar');
 const orderContextRoutes = require('./routes/order-context');
 const clientShopsRoutes = require('./routes/client-shops');
 const clientFinanceRoutes = require('./routes/client-finance');
+const { helmetConfig, sanitizeMongo, sanitizeXSS } = require('./middleware/security');
+const { generalLimiter } = require('./middleware/rateLimiter');
+const prisma = require('./config/database');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Reverse proxy support (Nginx/Render/etc.)
+// IMPORTANT: Assumes the app is behind a trusted proxy in production.
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 
 // Middleware de logging (production: utiliser un logger approprié)
 if (process.env.NODE_ENV === 'development') {
@@ -44,6 +59,11 @@ if (process.env.NODE_ENV === 'development') {
     next();
   });
 }
+
+// Security headers & sanitization (production-ready)
+app.use(helmetConfig);
+app.use(sanitizeMongo);
+app.use(sanitizeXSS);
 
 // Configuration CORS - autorise le frontend en production
 const allowedOrigins = [
@@ -70,6 +90,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
+
+// Rate limiting (bank-level in production)
+app.use('/api', generalLimiter);
 
 // Routes principales
 app.use('/api/auth', authRoutes);
@@ -106,6 +129,25 @@ app.use('/api/client-finance', clientFinanceRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+/**
+ * GET /api/health/db
+ * Minimal DB connectivity check (production monitoring).
+ */
+app.get('/api/health/db', async (req, res) => {
+  try {
+    // Lightweight query, no data exposure.
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok', db: 'ok', timestamp: new Date().toISOString() });
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      db: 'error',
+      message: 'Database unavailable',
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 // Middleware de gestion d'erreurs

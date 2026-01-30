@@ -6,6 +6,7 @@ import { getDefaultRouteForRole } from '../../constants/routes'
 import Toast from '../../components/common/Toast'
 import { useToast } from '../../hooks/useToast'
 import { register, resendVerificationEmail } from '../../api/auth'
+import { ROUTES } from '../../constants/routes'
 
 /**
  * Page de connexion
@@ -219,6 +220,16 @@ function Login() {
                   </>
                 )}
               </button>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => navigate(ROUTES.FORGOT_PASSWORD)}
+                  className="text-sm text-primary-700 hover:text-primary-800 font-medium"
+                >
+                  Mot de passe oublié ?
+                </button>
+              </div>
 
               {showEmailVerification && (
                 <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">

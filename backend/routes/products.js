@@ -114,77 +114,6 @@ router.get('/search', authenticate, async (req, res) => {
 });
 
 /**
- * GET /api/products/search
- * Recherche améliorée par nom, gencod, barcode
- */
-router.get('/search', authenticate, async (req, res) => {
-  try {
-    const { q, gencod, barcode } = req.query;
-    
-    if (gencod || barcode) {
-      // Recherche par code
-      const product = await prisma.product.findFirst({
-        where: {
-          OR: [
-            gencod ? { gencod: { contains: gencod, mode: 'insensitive' } } : {},
-            barcode ? { barcode: { contains: barcode } } : {}
-          ],
-          isActive: true,
-          isVisibleToClients: true
-        },
-        include: {
-          customCategory: true,
-          customSubCategory: true
-        }
-      });
-      
-      if (product) {
-        return res.json({
-          success: true,
-          product
-        });
-      }
-    }
-    
-    // Recherche par nom/libellé
-    if (q) {
-      const products = await prisma.product.findMany({
-        where: {
-          OR: [
-            { name: { contains: q, mode: 'insensitive' } },
-            { gencod: { contains: q, mode: 'insensitive' } },
-            { barcode: { contains: q } }
-          ],
-          isActive: true,
-          isVisibleToClients: true
-        },
-        include: {
-          customCategory: true,
-          customSubCategory: true
-        },
-        take: 50
-      });
-      
-      return res.json({
-        success: true,
-        products
-      });
-    }
-    
-    res.json({
-      success: false,
-      message: 'Paramètre de recherche manquant'
-    });
-  } catch (error) {
-    logger.error('Erreur recherche produits', { error: error.message });
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la recherche'
-    });
-  }
-});
-
-/**
  * GET /api/products/categories
  * Liste des catégories et sous-catégories disponibles
  */
@@ -480,9 +409,17 @@ router.post(
   [
     body('name').trim().notEmpty().withMessage('Le nom est requis'),
     body('priceHT').isFloat({ min: 0 }).withMessage('Prix HT invalide'),
-    body('tvaRate').isFloat({ min: 0, max: 100 }).withMessage('Taux TVA invalide'),
+    body('tvaRate').optional().isFloat({ min: 0, max: 100 }).withMessage('Taux TVA invalide'),
     body('unit').isIn(['kg', 'caisse', 'piece', 'botte']).withMessage('Unité invalide'),
     body('category').optional().isIn(['FRUITS', 'LEGUMES', 'HERBES', 'FRUITS_SECS']).withMessage('Catégorie invalide'),
+    // Champs métier optionnels
+    body('origin').optional().isIn(['FRANCE', 'ESPAGNE', 'MAROC', 'PORTUGAL', 'ITALIE', 'BELGIQUE', 'PAYS_BAS', 'AUTRE']),
+    body('packaging').optional().isIn(['KG', 'UC', 'BAR', 'SAC', 'PCE', 'FIL', 'BOTTE', 'CAISSE']),
+    body('presentation').optional().isIn(['PCE', 'SAC', 'BAR', 'KGS', 'FIL', 'BOTTE', 'CAISSE']),
+    body('margin').optional().isFloat({ min: 0 }),
+    body('cessionPrice').optional().isFloat({ min: 0 }),
+    body('pvc').optional().isFloat({ min: 0 }),
+    body('priceHT_T2').optional().isFloat({ min: 0 }),
   ],
   async (req, res) => {
     try {
@@ -491,18 +428,48 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
-          const { name, priceHT, tvaRate, unit, category, categoryId, subCategory, subCategoryId, isActive, stock, stockAlert } = req.body;
+          const {
+            name,
+            priceHT,
+            priceHT_T2,
+            tvaRate,
+            unit,
+            category,
+            categoryId,
+            subCategory,
+            subCategoryId,
+            isActive,
+            stock,
+            stockAlert,
+            origin,
+            packaging,
+            presentation,
+            margin,
+            cessionPrice,
+            pvc,
+            gencod,
+            barcode,
+          } = req.body;
           const photoUrl = req.file ? `/uploads/products/${req.file.filename}` : null;
           
           const productData = {
             name,
             priceHT: parseFloat(priceHT),
+            ...(priceHT_T2 !== undefined ? { priceHT_T2: parseFloat(priceHT_T2) } : {}),
             tvaRate: parseFloat(tvaRate || 5.5),
             unit: unit || 'kg',
             isActive: isActive !== undefined ? isActive === 'true' : true,
             stock: stock !== undefined ? parseFloat(stock) : 0,
             stockAlert: stockAlert !== undefined ? parseFloat(stockAlert) : 10,
-            photoUrl
+            photoUrl,
+            ...(origin ? { origin } : {}),
+            ...(packaging ? { packaging } : {}),
+            ...(presentation ? { presentation } : {}),
+            ...(margin !== undefined ? { margin: parseFloat(margin) } : {}),
+            ...(cessionPrice !== undefined ? { cessionPrice: parseFloat(cessionPrice) } : {}),
+            ...(pvc !== undefined ? { pvc: parseFloat(pvc) } : {}),
+            ...(gencod ? { gencod } : {}),
+            ...(barcode ? { barcode } : {}),
           };
 
           // Si on utilise une catégorie personnalisée
@@ -608,11 +575,18 @@ router.put(
   [
     body('name').optional().trim().notEmpty(),
     body('priceHT').optional().isFloat({ min: 0 }),
+    body('priceHT_T2').optional().isFloat({ min: 0 }),
     body('tvaRate').optional().isFloat({ min: 0, max: 100 }),
         body('unit').optional().isIn(['kg', 'caisse', 'piece', 'botte']),
         body('category').optional().isIn(['FRUITS', 'LEGUMES', 'HERBES', 'FRUITS_SECS']),
         body('stock').optional().isFloat({ min: 0 }),
         body('stockAlert').optional().isFloat({ min: 0 }),
+        body('origin').optional().isIn(['FRANCE', 'ESPAGNE', 'MAROC', 'PORTUGAL', 'ITALIE', 'BELGIQUE', 'PAYS_BAS', 'AUTRE']),
+        body('packaging').optional().isIn(['KG', 'UC', 'BAR', 'SAC', 'PCE', 'FIL', 'BOTTE', 'CAISSE']),
+        body('presentation').optional().isIn(['PCE', 'SAC', 'BAR', 'KGS', 'FIL', 'BOTTE', 'CAISSE']),
+        body('margin').optional().isFloat({ min: 0 }),
+        body('cessionPrice').optional().isFloat({ min: 0 }),
+        body('pvc').optional().isFloat({ min: 0 }),
       ],
   async (req, res) => {
     try {
@@ -638,8 +612,17 @@ router.put(
             }
           }
           if (req.body.priceHT) updateData.priceHT = parseFloat(req.body.priceHT);
+          if (req.body.priceHT_T2) updateData.priceHT_T2 = parseFloat(req.body.priceHT_T2);
           if (req.body.tvaRate) updateData.tvaRate = parseFloat(req.body.tvaRate);
           if (req.body.unit) updateData.unit = req.body.unit;
+          if (req.body.origin) updateData.origin = req.body.origin;
+          if (req.body.packaging) updateData.packaging = req.body.packaging;
+          if (req.body.presentation) updateData.presentation = req.body.presentation;
+          if (req.body.margin !== undefined) updateData.margin = parseFloat(req.body.margin);
+          if (req.body.cessionPrice !== undefined) updateData.cessionPrice = parseFloat(req.body.cessionPrice);
+          if (req.body.pvc !== undefined) updateData.pvc = parseFloat(req.body.pvc);
+          if (req.body.gencod) updateData.gencod = req.body.gencod;
+          if (req.body.barcode) updateData.barcode = req.body.barcode;
           if (req.body.category) {
             updateData.category = req.body.category;
             // Re-détecter la sous-catégorie si la catégorie change

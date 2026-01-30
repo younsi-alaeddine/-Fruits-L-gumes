@@ -6,6 +6,8 @@ export const ROUTES = {
   // Routes publiques
   LOGIN: '/login',
   VERIFY_EMAIL: '/verify-email',
+  FORGOT_PASSWORD: '/forgot-password',
+  RESET_PASSWORD: '/reset-password',
   HOME: '/',
 
   // Routes ADMIN
@@ -87,6 +89,7 @@ export const getDefaultRouteForRole = (role) => {
     case 'LIVREUR':
     case 'COMMERCIAL':
     case 'STOCK_MANAGER':
+    case 'FINANCE':
       return ROUTES.CLIENT.DASHBOARD
     default:
       return ROUTES.LOGIN

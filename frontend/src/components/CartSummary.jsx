@@ -2,21 +2,22 @@ import React from 'react'
 import { useCart } from '../contexts/CartContext'
 
 function CartSummary({ onSaveDraft, onSendOrder }) {
-  const { items, total } = useCart()
+  const { cartItems, getTotal } = useCart()
+  const total = getTotal()
 
   return (
     <div className="bg-white rounded-lg shadow-sm p-6 sticky top-4">
       <h2 className="text-xl font-semibold mb-4">Résumé de la commande</h2>
       
-      {items.length === 0 ? (
+      {cartItems.length === 0 ? (
         <p className="text-gray-500 text-center py-8">Votre panier est vide</p>
       ) : (
         <>
           <div className="space-y-3 mb-4">
-            {items.map((item) => (
-              <div key={item.id} className="flex justify-between items-center border-b pb-2">
+            {cartItems.map((item) => (
+              <div key={item.productId} className="flex justify-between items-center border-b pb-2">
                 <div className="flex-1">
-                  <p className="font-medium">{item.name}</p>
+                  <p className="font-medium">{item.product?.name || 'Produit'}</p>
                   <p className="text-sm text-gray-600">Qté: {item.quantity}</p>
                 </div>
                 <p className="font-semibold">{(item.price * item.quantity).toFixed(2)} €</p>

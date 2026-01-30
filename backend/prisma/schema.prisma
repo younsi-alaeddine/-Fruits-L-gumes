@@ -306,6 +306,7 @@ model Product {
   margin             Float? // Marge en pourcentage
   marginAmount       Float? // Marge en euros
   cessionPrice       Float? // Prix de cession
+  pvc                Float? // Prix de vente conseillé (optionnel)
   gencod             String? // Code-barres / Gencod
   barcode            String? // Code-barres EAN
   category           ProductCategory @default(FRUITS) // Ancien système (pour rétrocompatibilité)
@@ -352,6 +353,7 @@ model Product {
   @@index([isInCampaign])
   @@index([gencod])
   @@index([barcode])
+  @@index([pvc])
   @@index([deletedAt])
   @@map("products")
 }

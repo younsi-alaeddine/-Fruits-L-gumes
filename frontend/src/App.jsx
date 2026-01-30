@@ -11,6 +11,8 @@ import ProtectedRoute from './components/common/ProtectedRoute'
 // Pages d'authentification
 import Login from './pages/auth/Login'
 import VerifyEmail from './pages/auth/VerifyEmail'
+import ForgotPassword from './pages/auth/ForgotPassword'
+import ResetPassword from './pages/auth/ResetPassword'
 
 // Pages ADMIN
 import AdminDashboard from './pages/admin/Dashboard'
@@ -93,6 +95,8 @@ function AppRoutes() {
       <Routes>
         <Route path={ROUTES.LOGIN} element={<Login />} />
         <Route path={ROUTES.VERIFY_EMAIL} element={<VerifyEmail />} />
+        <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPassword />} />
+        <Route path={ROUTES.RESET_PASSWORD} element={<ResetPassword />} />
         <Route path="*" element={<Navigate to={ROUTES.LOGIN} replace />} />
       </Routes>
     )
